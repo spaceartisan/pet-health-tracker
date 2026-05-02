@@ -1,0 +1,1789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f3ec">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pet Health">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Pet Health Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  /* Warm, editorial palette: cream + ink + sage + terracotta accents */
+  --bg: #f7f3ec;
+  --bg-2: #ede6d8;
+  --card: #ffffff;
+  --ink: #1f1d1a;
+  --ink-2: #4a4640;
+  --muted: #8a8278;
+  --line: #e3dccc;
+  --line-2: #d3cab6;
+  --sage: #6b8e5a;
+  --sage-soft: #e8efe1;
+  --terra: #c2613f;
+  --terra-soft: #f5e3da;
+  --amber: #b8821a;
+  --amber-soft: #f3ead0;
+  --danger: #b53a2c;
+  --shadow-sm: 0 1px 2px rgba(31, 29, 26, .04), 0 2px 6px rgba(31, 29, 26, .04);
+  --shadow-md: 0 2px 4px rgba(31, 29, 26, .04), 0 12px 28px rgba(31, 29, 26, .08);
+  --shadow-lg: 0 4px 8px rgba(31, 29, 26, .06), 0 24px 48px rgba(31, 29, 26, .12);
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --display: 'Fraunces', Georgia, serif;
+  --sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at 10% -10%, rgba(107, 142, 90, .12), transparent 50%),
+    radial-gradient(ellipse at 110% 0%, rgba(194, 97, 63, .10), transparent 50%),
+    var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  min-height: 44px;
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -.005em;
+  color: white;
+  background: var(--ink);
+  cursor: pointer;
+  transition: transform .08s ease, background .15s ease, box-shadow .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+button:hover { background: #2c2925; }
+button:active { transform: translateY(1px); }
+button:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+
+button.secondary { background: var(--bg-2); color: var(--ink); }
+button.secondary:hover { background: var(--line-2); }
+button.ghost { background: transparent; color: var(--ink-2); }
+button.ghost:hover { background: var(--bg-2); }
+button.sage { background: var(--sage); }
+button.sage:hover { background: #5d7d4f; }
+button.terra { background: var(--terra); }
+button.terra:hover { background: #ad563a; }
+button.danger { background: var(--danger); }
+button.danger:hover { background: #9c3327; }
+button.tiny { min-height: 32px; padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+
+input, select, textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: white;
+  padding: 10px 12px;
+  font-size: 15px;
+  outline: none;
+  min-height: 44px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+  /* Prevent iOS zoom on focus */
+}
+textarea { min-height: 76px; resize: vertical; line-height: 1.4; }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--sage);
+  box-shadow: 0 0 0 3px rgba(107, 142, 90, .15);
+}
+input[type="date"] { -webkit-appearance: none; appearance: none; }
+
+label.field {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+/* ============ APP SHELL ============ */
+.app {
+  width: min(1380px, 100%);
+  margin: 0 auto;
+  padding: calc(20px + var(--safe-top)) calc(20px + var(--safe-right)) 20px calc(20px + var(--safe-left));
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 18px;
+  min-height: 100dvh;
+}
+
+/* ============ HEADER ============ */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.logo {
+  width: 48px; height: 48px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, var(--sage) 0%, #527a45 100%);
+  color: white;
+  font-size: 24px;
+  box-shadow: var(--shadow-md);
+  flex: 0 0 auto;
+}
+h1 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(22px, 2.4vw, 30px);
+  line-height: 1.05;
+  margin: 0;
+  letter-spacing: -.02em;
+  font-variation-settings: "opsz" 144;
+}
+.subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ============ MAIN SHELL ============ */
+.shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ============ SIDEBAR ============ */
+.sidebar { padding: 16px; }
+.side-title {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  margin: 0 0 10px;
+}
+.pet-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.pet-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 8px;
+  text-align: left;
+  min-height: 56px;
+  font-weight: 500;
+  transition: background .15s ease, border-color .15s ease;
+}
+.pet-row:hover { background: var(--bg); }
+.pet-row.active {
+  background: var(--sage-soft);
+  border-color: rgba(107, 142, 90, .35);
+}
+.pet-avatar {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-2);
+  font-size: 22px;
+  flex: 0 0 auto;
+}
+.pet-row.active .pet-avatar { background: white; }
+.pet-row b {
+  font-size: 14px;
+  font-weight: 600;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pet-row span {
+  font-size: 12px;
+  color: var(--muted);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+}
+
+.add-pet-form { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.form-grid { display: grid; gap: 10px; }
+.form-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.form-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.form-grid .full { grid-column: 1 / -1; }
+
+/* ============ MAIN CONTENT ============ */
+.main {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* Pet hero / summary */
+.summary {
+  padding: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr);
+  gap: 20px;
+  align-items: start;
+}
+.pet-hero {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+.hero-icon {
+  width: 76px; height: 76px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, var(--sage-soft), var(--terra-soft));
+  font-size: 40px;
+  flex: 0 0 auto;
+}
+.hero-name {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  font-variation-settings: "opsz" 144;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hero-name .edit-pet {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.hero-name .edit-pet:hover { background: var(--bg); color: var(--ink); }
+.hero-name .edit-pet.danger-action { color: var(--danger); }
+.hero-name .edit-pet.danger-action:hover { background: #fbeae7; color: var(--danger); border-color: #f0c8c0; }
+.hero-meta { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+.stats {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.stat {
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.stat b {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 22px;
+  display: block;
+  line-height: 1.05;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variation-settings: "opsz" 72;
+}
+.stat span {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-top: 2px;
+  display: block;
+}
+
+.care-note {
+  background: var(--sage-soft);
+  border-left: 3px solid var(--sage);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #2d4520;
+  line-height: 1.55;
+}
+.care-note b {
+  font-family: var(--display);
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 13px;
+  letter-spacing: -.005em;
+}
+.care-note ul { margin: 0; padding-left: 18px; }
+.care-note li { margin: 2px 0; }
+
+/* Workspace = form + content */
+.workspace {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.record-form { padding: 20px; }
+.section-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.section-h h2 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -.01em;
+  margin: 0;
+  font-variation-settings: "opsz" 144;
+}
+.section-h .hint {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.record-form form { display: grid; gap: 12px; }
+.form-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.content {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.chart-card { padding: 20px; }
+.chart-wrap {
+  position: relative;
+  height: clamp(220px, 32vh, 320px);
+}
+.records-card { padding: 20px; }
+.records-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.records-tools input { width: clamp(160px, 20vw, 240px); min-height: 36px; padding: 6px 12px; }
+.records-list {
+  display: grid;
+  gap: 10px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.records-list::-webkit-scrollbar { width: 6px; }
+.records-list::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 6px; }
+
+.record {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  transition: border-color .15s ease;
+}
+.record:hover { border-color: var(--line-2); }
+.record-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.record-top-left { min-width: 0; flex: 1; }
+.record-type {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.type-pill {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--ink-2);
+}
+.type-pill.weight { background: var(--sage-soft); color: #3d5d2c; }
+.type-pill.meal { background: var(--amber-soft); color: #6b4d10; }
+.type-pill.medication { background: var(--terra-soft); color: #7d3a23; }
+.type-pill.activity { background: #e0eaf5; color: #2c4566; }
+.type-pill.symptom { background: #f5dfdf; color: #802424; }
+.type-pill.vet { background: #ebe2f2; color: #4d2e6b; }
+.type-pill.vomit { background: #f1d9c8; color: #6e3315; }
+.type-pill.diarrhea { background: #ead9bc; color: #5e3f0b; }
+.record-date { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.record-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.metrics {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.badge {
+  border-radius: 999px;
+  background: white;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.note {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-2);
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius);
+  padding: 28px 18px;
+  min-height: 100px;
+  font-size: 13px;
+}
+.empty b {
+  font-family: var(--display);
+  display: block;
+  color: var(--ink-2);
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+/* ============ MOBILE BOTTOM TAB BAR ============ */
+.mobile-nav { display: none; }
+.mobile-fab { display: none; }
+
+/* ============ MODAL ============ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 29, 26, .45);
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 200;
+  padding: 0;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.modal-backdrop.open { display: flex; animation: fadeIn .2s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  background: var(--card);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding: 20px 20px calc(20px + var(--safe-bottom));
+  animation: slideUp .25s ease;
+  box-shadow: var(--shadow-lg);
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@media (min-width: 720px) {
+  .modal-backdrop { align-items: center; padding: 20px; }
+  .modal { border-radius: var(--radius-lg); animation: fadeIn .2s ease; }
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.modal-head h2 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -.01em;
+  margin: 0;
+  font-variation-settings: "opsz" 144;
+}
+.modal-close {
+  background: transparent;
+  color: var(--muted);
+  min-height: 36px;
+  width: 36px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 20px;
+  line-height: 1;
+}
+.modal-close:hover { background: var(--bg-2); color: var(--ink); }
+.modal-handle {
+  width: 36px; height: 4px;
+  background: var(--line-2);
+  border-radius: 999px;
+  margin: -4px auto 14px;
+}
+@media (min-width: 720px) { .modal-handle { display: none; } }
+
+/* ============ TOAST ============ */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + var(--safe-bottom));
+  transform: translateX(-50%) translateY(20px);
+  background: var(--ink);
+  color: white;
+  border-radius: 999px;
+  padding: 12px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 300;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+  box-shadow: var(--shadow-md);
+  white-space: nowrap;
+  max-width: calc(100vw - 40px);
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ============ TABLET ============ */
+@media (max-width: 1024px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar .add-pet-form { display: none; }
+  .pet-list {
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    margin-bottom: 0;
+    padding: 4px 0;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+  .pet-list::-webkit-scrollbar { display: none; }
+  .pet-row {
+    flex: 0 0 auto;
+    min-width: 180px;
+    scroll-snap-align: start;
+  }
+  .sidebar .side-title { display: none; }
+  .workspace { grid-template-columns: 1fr; }
+  .summary { grid-template-columns: 1fr; }
+}
+
+/* ============ MOBILE ============ */
+@media (max-width: 720px) {
+  .app {
+    padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(80px + var(--safe-bottom)) calc(12px + var(--safe-left));
+    gap: 14px;
+  }
+  .header-actions { display: none; } /* moved into menu / mobile nav */
+  .header { gap: 10px; }
+  .subtitle { display: none; }
+  .logo { width: 40px; height: 40px; font-size: 20px; border-radius: 12px; }
+
+  /* Mobile uses tabs; show only the active panel */
+  .shell { display: block; }
+  .sidebar { padding: 12px; margin-bottom: 14px; border-radius: var(--radius-lg); }
+  .pet-row { min-width: 150px; min-height: 52px; }
+
+  /* Tab panel system */
+  .main { gap: 14px; }
+  .panel { display: none; }
+  .panel.active { display: grid; gap: 14px; }
+
+  .summary { padding: 16px; gap: 14px; }
+  .pet-hero { grid-template-columns: 56px 1fr; gap: 12px; }
+  .hero-icon { width: 56px; height: 56px; font-size: 30px; border-radius: 18px; }
+  .stats { gap: 8px; margin-top: 14px; }
+  .stat { padding: 10px; }
+  .stat b { font-size: 18px; }
+  .stat span { font-size: 9px; letter-spacing: .06em; }
+
+  .record-form { padding: 16px; }
+  .chart-card, .records-card { padding: 16px; }
+  .chart-wrap { height: clamp(220px, 38vh, 300px); }
+  .records-list { max-height: none; }
+
+  /* Bottom nav */
+  .mobile-nav {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, .92);
+    -webkit-backdrop-filter: saturate(180%) blur(14px);
+    backdrop-filter: saturate(180%) blur(14px);
+    border-top: 1px solid var(--line);
+    z-index: 100;
+    padding-bottom: var(--safe-bottom);
+  }
+  .mobile-nav button {
+    background: transparent;
+    color: var(--muted);
+    border-radius: 0;
+    min-height: 56px;
+    padding: 8px 4px;
+    display: grid;
+    place-items: center;
+    gap: 2px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .mobile-nav button:hover { background: transparent; color: var(--ink-2); }
+  .mobile-nav button.active { color: var(--sage); }
+  .mobile-nav .nav-icon {
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  /* Floating "more" button — for export/import on mobile */
+  .mobile-fab {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    bottom: calc(72px + var(--safe-bottom));
+    right: calc(16px + var(--safe-right));
+    width: 48px;
+    height: 48px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: white;
+    box-shadow: var(--shadow-lg);
+    z-index: 99;
+    min-height: 48px;
+    padding: 0;
+    font-size: 20px;
+  }
+}
+
+/* ============ COMPACT PHONES (small height) ============ */
+@media (max-width: 720px) and (max-height: 700px) {
+  .stats { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .stat { padding: 8px 6px; }
+  .stat b { font-size: 16px; }
+}
+
+/* ============ SHEET MENU (mobile more menu) ============ */
+.menu-list { display: grid; gap: 6px; margin-top: 4px; }
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 12px;
+  background: var(--bg);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: left;
+  width: 100%;
+  min-height: 52px;
+}
+.menu-item:hover { background: var(--bg-2); }
+.menu-item.danger { color: var(--danger); }
+.menu-icon {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  background: white;
+  font-size: 16px;
+  flex: 0 0 auto;
+}
+
+/* Hidden but accessible */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="header">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">🐾</div>
+      <div>
+        <h1>Pet Health Tracker</h1>
+        <div class="subtitle">Daily care, weight, meds, mood &amp; vet visits — for every pet you love.</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="addPetBtn" class="secondary" type="button">＋ Add pet</button>
+      <button id="importBtn" class="secondary" type="button">Import</button>
+      <button id="exportCsvBtn" class="sage" type="button">Export CSV</button>
+      <button id="exportJsonBtn" class="ghost" type="button">Export JSON</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar card">
+      <p class="side-title">Your pets</p>
+      <div class="pet-list" id="petList" role="list"></div>
+      <div class="add-pet-form">
+        <p class="side-title" style="margin-top: 4px;">Add a pet</p>
+        <div class="form-grid cols-2">
+          <label class="field">Name<input id="pName" placeholder="Felix" autocomplete="off"></label>
+          <label class="field">Icon
+            <select id="pIcon">
+              <option>🐱</option><option>🐶</option><option>🐰</option><option>🐦</option>
+              <option>🐹</option><option>🐢</option><option>🐠</option><option>🦎</option><option>🐾</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-grid cols-2">
+          <label class="field">Species
+            <select id="pSpecies">
+              <option>Cat</option><option>Dog</option><option>Rabbit</option><option>Bird</option>
+              <option>Reptile</option><option>Fish</option><option>Other</option>
+            </select>
+          </label>
+          <label class="field">Breed<input id="pBreed" placeholder="Tuxedo" autocomplete="off"></label>
+        </div>
+        <label class="field">Birthday<input type="date" id="pBirthday"></label>
+        <button id="savePet" class="sage" type="button">Add pet</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- Pet summary panel (mobile tab: Home) -->
+      <section class="panel active" id="panel-home" data-panel="home">
+        <section class="summary card">
+          <div>
+            <div class="pet-hero">
+              <div class="hero-icon" id="heroIcon">🐾</div>
+              <div style="min-width:0">
+                <div class="hero-name" id="heroName">No pet selected</div>
+                <div class="hero-meta" id="heroMeta">Add a pet to begin tracking.</div>
+              </div>
+            </div>
+            <div class="stats">
+              <div class="stat"><b id="sWeight">—</b><span>Weight</span></div>
+              <div class="stat"><b id="sMood">—</b><span>Avg mood</span></div>
+              <div class="stat"><b id="sMeds">—</b><span>Meds</span></div>
+              <div class="stat"><b id="sRecords">—</b><span>Logs</span></div>
+            </div>
+          </div>
+          <div class="care-note">
+            <b>Care snapshot</b>
+            <ul id="careNotes"><li>No logs yet.</li></ul>
+          </div>
+        </section>
+      </section>
+
+      <!-- Workspace: form + chart + records -->
+      <section class="panel active" id="panel-log" data-panel="log">
+        <div class="workspace">
+          <section class="record-form card">
+            <div class="section-h">
+              <h2 id="formTitle">Add health log</h2>
+              <span class="hint" id="formHint">All fields optional</span>
+            </div>
+            <form id="recordForm" autocomplete="off">
+              <input type="hidden" id="rId" value="">
+              <div class="form-grid cols-2">
+                <label class="field">Date<input type="date" id="rDate" required></label>
+                <label class="field">Type
+                  <select id="rType">
+                    <option value="weight">Weight</option>
+                    <option value="meal">Meal</option>
+                    <option value="medication">Medication</option>
+                    <option value="activity">Activity</option>
+                    <option value="symptom">Symptom</option>
+                    <option value="vomit">Vomit</option>
+                    <option value="diarrhea">Diarrhea</option>
+                    <option value="vet">Vet visit</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid cols-3">
+                <label class="field">Weight<input type="number" step="0.01" id="rWeight" inputmode="decimal" placeholder="lb / kg"></label>
+                <label class="field">Mood<input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
+                <label class="field">Activity<input type="number" id="rActivity" inputmode="numeric" placeholder="min"></label>
+              </div>
+              <div class="form-grid cols-2">
+                <label class="field">Food<input id="rFood" placeholder="meal / brand"></label>
+                <label class="field">Medication<input id="rMed" placeholder="dose"></label>
+              </div>
+              <div class="form-grid cols-2">
+                <label class="field">Cost<input type="number" step="0.01" id="rCost" inputmode="decimal" placeholder="$"></label>
+                <label class="field" style="grid-column: 1 / -1;">Note<textarea id="rNote" placeholder="Symptoms, appetite, behavior, vet instructions…"></textarea></label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="sage" id="submitBtn">Add log</button>
+                <button type="button" id="clearForm" class="ghost">Clear</button>
+              </div>
+            </form>
+          </section>
+
+          <div class="content">
+            <section class="chart-card card" id="trends-card">
+              <div class="section-h">
+                <h2>Trends</h2>
+                <select id="chartMode" style="width: auto; min-height: 36px; padding: 6px 12px;">
+                  <option value="weight">Weight</option>
+                  <option value="mood">Mood</option>
+                  <option value="activity">Activity</option>
+                  <option value="cost">Cost</option>
+                  <option value="vomit-weekly">Vomit (weekly)</option>
+                  <option value="diarrhea-weekly">Diarrhea (weekly)</option>
+                  <option value="gi-weekly">GI episodes (weekly)</option>
+                  <option value="types">Log types</option>
+                </select>
+              </div>
+              <div class="chart-wrap"><canvas id="chart"></canvas></div>
+            </section>
+
+            <section class="records-card card">
+              <div class="section-h">
+                <h2>Recent logs</h2>
+                <div class="records-tools">
+                  <input id="search" placeholder="Search…" aria-label="Search logs">
+                </div>
+              </div>
+              <div class="records-list" id="records"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- Mobile bottom tabs -->
+<nav class="mobile-nav" aria-label="Sections">
+  <button data-tab="home" class="active" type="button"><span class="nav-icon">🏠</span><span>Home</span></button>
+  <button data-tab="add" type="button"><span class="nav-icon">＋</span><span>Add log</span></button>
+  <button data-tab="trends" type="button"><span class="nav-icon">📈</span><span>Trends</span></button>
+  <button data-tab="logs" type="button"><span class="nav-icon">📋</span><span>Logs</span></button>
+</nav>
+
+<!-- Mobile floating menu (export/import) -->
+<button class="mobile-fab" id="mobileFab" type="button" aria-label="More options">⋯</button>
+
+<!-- Modal -->
+<div class="modal-backdrop" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-head">
+      <h2 id="modalTitle">—</h2>
+      <button class="modal-close" id="modalClose" type="button" aria-label="Close">✕</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<!-- Hidden file input for JSON import -->
+<input type="file" id="fileInput" accept="application/json,.json" class="sr-only" aria-hidden="true">
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ===== STATE =====
+  // Keep storage key compatible with v1.2.0 so existing user data is preserved.
+  var STORAGE_KEY = 'petHealth.responsive.v120';
+  var state = load();
+  if (!state.pets.length) seed();
+  var activePetId = state.pets[0] ? state.pets[0].id : null;
+  var chart = null;
+  var editingLogId = null;
+
+  // ===== DOM HELPERS =====
+  var $ = function (id) { return document.getElementById(id); };
+  var modal = $('modal');
+  var modalBody = $('modalBody');
+  var modalTitle = $('modalTitle');
+
+  // Initialize date input to today
+  $('rDate').valueAsDate = new Date();
+
+  // ===== EVENT LISTENERS =====
+  $('savePet').addEventListener('click', addPetFromSidebar);
+  $('addPetBtn').addEventListener('click', openAddPetModal);
+  $('recordForm').addEventListener('submit', handleRecordSubmit);
+  $('clearForm').addEventListener('click', clearRecordForm);
+  $('chartMode').addEventListener('change', renderChart);
+  $('search').addEventListener('input', renderRecords);
+  $('exportCsvBtn').addEventListener('click', exportCsv);
+  $('exportJsonBtn').addEventListener('click', exportJson);
+  $('importBtn').addEventListener('click', triggerImport);
+  $('fileInput').addEventListener('change', handleImport);
+  $('modalClose').addEventListener('click', closeModal);
+  modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+  });
+
+  // Mobile bottom nav
+  document.querySelectorAll('.mobile-nav button').forEach(function (b) {
+    b.addEventListener('click', function () { switchTab(b.dataset.tab); });
+  });
+  $('mobileFab').addEventListener('click', openMobileMenu);
+
+  // ===== INITIAL RENDER =====
+  applyMobileTab(); // default tab on mobile
+  render();
+
+  // ===== RENDER PIPELINE =====
+  function render() {
+    renderPets();
+    renderSummary();
+    renderRecords();
+    renderChart();
+  }
+
+  function renderPets() {
+    var list = $('petList');
+    list.innerHTML = '';
+    if (!state.pets.length) {
+      list.innerHTML = '<div class="empty"><b>No pets yet</b>Add a pet to start tracking.</div>';
+      return;
+    }
+    state.pets.forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pet-row' + (p.id === activePetId ? ' active' : '');
+      b.setAttribute('role', 'listitem');
+      b.innerHTML =
+        '<div class="pet-avatar">' + esc(p.icon || '🐾') + '</div>' +
+        '<div style="min-width:0">' +
+          '<b>' + esc(p.name) + '</b>' +
+          '<span>' + esc(p.species || 'Pet') + (p.breed ? ' · ' + esc(p.breed) : '') + '</span>' +
+        '</div>';
+      b.addEventListener('click', function () {
+        activePetId = p.id;
+        if (window.matchMedia('(max-width: 720px)').matches) switchTab('home');
+        render();
+      });
+      list.appendChild(b);
+    });
+  }
+
+  function renderSummary() {
+    var p = activePet();
+    var rs = petRecords();
+    if (!p) {
+      $('heroIcon').textContent = '🐾';
+      $('heroName').innerHTML = 'No pet selected';
+      $('heroMeta').textContent = 'Add a pet to begin tracking.';
+      ['sWeight', 'sMood', 'sMeds', 'sRecords'].forEach(function (id) { $(id).textContent = '—'; });
+      $('careNotes').innerHTML = '<li>No pet selected.</li>';
+      return;
+    }
+    $('heroIcon').textContent = p.icon || '🐾';
+    $('heroName').innerHTML = esc(p.name) +
+      ' <button class="edit-pet" type="button" id="editPetBtn">Edit</button>' +
+      ' <button class="edit-pet danger-action" type="button" id="deletePetBtn">Delete</button>';
+    $('editPetBtn').addEventListener('click', function () { openEditPetModal(p); });
+    $('deletePetBtn').addEventListener('click', function () { confirmDeletePet(p); });
+    $('heroMeta').textContent = (p.species || 'Pet') + (p.breed ? ' · ' + p.breed : '') + age(p.birthday);
+
+    var weights = rs.filter(function (r) { return r.weight !== '' && r.weight != null; }).sort(byDate);
+    var moods = rs.filter(function (r) { return r.mood !== '' && r.mood != null; }).map(function (r) { return Number(r.mood); });
+    $('sWeight').textContent = weights.length ? weights[weights.length - 1].weight : '—';
+    $('sMood').textContent = moods.length ? avg(moods).toFixed(1) : '—';
+    $('sMeds').textContent = rs.filter(function (r) { return r.type === 'medication'; }).length;
+    $('sRecords').textContent = rs.length;
+
+    var notes = [];
+    if (rs.length) {
+      var latest = rs.slice().sort(function (a, b) { return b.date.localeCompare(a.date); })[0];
+      notes.push('Last log: ' + latest.date + ' — ' + label(latest.type) + '.');
+    } else {
+      notes.push("No logs yet. Add today's baseline.");
+    }
+    var symptoms = rs.filter(function (r) { return r.type === 'symptom'; }).length;
+    if (symptoms) notes.push(symptoms + ' symptom log' + (symptoms === 1 ? '' : 's') + ' recorded.');
+    // Highlight recent GI events (last 14 days) — these matter more by recency than total
+    var giCutoff = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+    var recentVomit = rs.filter(function (r) { return r.type === 'vomit' && r.date >= giCutoff; }).length;
+    var recentDiarrhea = rs.filter(function (r) { return r.type === 'diarrhea' && r.date >= giCutoff; }).length;
+    if (recentVomit) notes.push(recentVomit + ' vomit episode' + (recentVomit === 1 ? '' : 's') + ' in the last 14 days.');
+    if (recentDiarrhea) notes.push(recentDiarrhea + ' diarrhea episode' + (recentDiarrhea === 1 ? '' : 's') + ' in the last 14 days.');
+    var vets = rs.filter(function (r) { return r.type === 'vet'; }).length;
+    if (vets) notes.push(vets + ' vet visit' + (vets === 1 ? '' : 's') + ' on file.');
+    var cost = rs.reduce(function (s, r) { return s + (Number(r.cost) || 0); }, 0);
+    if (cost) notes.push('Tracked care costs: $' + cost.toFixed(2) + '.');
+    $('careNotes').innerHTML = notes.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('');
+  }
+
+  function renderRecords() {
+    var q = ($('search').value || '').toLowerCase();
+    var rs = petRecords()
+      .filter(function (r) { return !q || JSON.stringify(r).toLowerCase().indexOf(q) >= 0; })
+      .sort(function (a, b) { return b.date.localeCompare(a.date); });
+
+    if (!rs.length) {
+      $('records').innerHTML = '<div class="empty"><b>No logs found</b>' +
+        (q ? 'Try a different search.' : 'Add your first log to begin.') + '</div>';
+      return;
+    }
+
+    $('records').innerHTML = rs.map(function (r) {
+      var bits = [];
+      if (r.weight !== '' && r.weight != null) bits.push('Wt ' + r.weight);
+      if (r.mood !== '' && r.mood != null) bits.push('Mood ' + r.mood + '/5');
+      if (r.activity !== '' && r.activity != null) bits.push(r.activity + ' min');
+      if (r.cost !== '' && r.cost != null && Number(r.cost) > 0) bits.push('$' + Number(r.cost).toFixed(2));
+      if (r.food) bits.push(esc(r.food));
+      if (r.med) bits.push(esc(r.med));
+      return '' +
+        '<div class="record" data-id="' + esc(r.id) + '">' +
+          '<div class="record-top">' +
+            '<div class="record-top-left">' +
+              '<div class="record-type"><span class="type-pill ' + esc(r.type) + '">' + label(r.type) + '</span></div>' +
+              '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
+            '</div>' +
+            '<div class="record-actions">' +
+              '<button class="ghost tiny" data-action="edit" type="button">Edit</button>' +
+              '<button class="ghost tiny" data-action="delete" type="button">Delete</button>' +
+            '</div>' +
+          '</div>' +
+          (bits.length ? '<div class="metrics">' + bits.map(function (b) { return '<span class="badge">' + b + '</span>'; }).join('') + '</div>' : '') +
+          (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
+        '</div>';
+    }).join('');
+
+    // Bind record-action buttons
+    $('records').querySelectorAll('.record').forEach(function (el) {
+      var id = el.dataset.id;
+      el.querySelector('[data-action="edit"]').addEventListener('click', function () { editLog(id); });
+      el.querySelector('[data-action="delete"]').addEventListener('click', function () { deleteLog(id); });
+    });
+  }
+
+  function renderChart() {
+    var canvas = $('chart');
+    if (!canvas) return;
+    var mode = $('chartMode').value;
+    var rs = petRecords().slice().sort(byDate);
+    var labels = [], data = [], chartType = 'line', name = label(mode);
+
+    if (chart) { chart.destroy(); chart = null; }
+
+    // Helper: Monday-anchored week start (YYYY-MM-DD) for a given YYYY-MM-DD string
+    function weekStartOf(dateStr) {
+      var d = new Date(dateStr + 'T00:00:00');
+      if (isNaN(d.getTime())) return null;
+      var dow = d.getDay(); // 0=Sun..6=Sat
+      var offsetToMon = (dow + 6) % 7; // 0 if Mon, 6 if Sun
+      d.setDate(d.getDate() - offsetToMon);
+      return d.toISOString().slice(0, 10);
+    }
+    function addDays(dateStr, n) {
+      var d = new Date(dateStr + 'T00:00:00');
+      d.setDate(d.getDate() + n);
+      return d.toISOString().slice(0, 10);
+    }
+    function shortWeekLabel(dateStr) {
+      var d = new Date(dateStr + 'T00:00:00');
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+    // Build weekly buckets from earliest-relevant week (or N weeks back, whichever is older) through current week.
+    // Returns { labels: [weekStart...], series: { typeKey: [counts...] } }
+    function buildWeeklyBuckets(typeKeys, minWeeks) {
+      var nowWeek = weekStartOf(today());
+      var earliest = null;
+      typeKeys.forEach(function (t) {
+        rs.forEach(function (r) {
+          if (r.type === t) {
+            var ws = weekStartOf(r.date);
+            if (ws && (!earliest || ws < earliest)) earliest = ws;
+          }
+        });
+      });
+      // If no events, use minWeeks back so the chart shows an empty baseline
+      var fallbackStart = nowWeek;
+      for (var i = 0; i < (minWeeks - 1); i++) fallbackStart = addDays(fallbackStart, -7);
+      var startWeek = earliest && earliest < fallbackStart ? earliest : fallbackStart;
+
+      var weeks = [];
+      var cursor = startWeek;
+      // Cap at 200 weeks just to be safe
+      var safety = 0;
+      while (cursor <= nowWeek && safety++ < 200) {
+        weeks.push(cursor);
+        cursor = addDays(cursor, 7);
+      }
+      var series = {};
+      typeKeys.forEach(function (t) {
+        series[t] = weeks.map(function () { return 0; });
+      });
+      rs.forEach(function (r) {
+        if (typeKeys.indexOf(r.type) === -1) return;
+        var ws = weekStartOf(r.date);
+        var idx = weeks.indexOf(ws);
+        if (idx >= 0) series[r.type][idx]++;
+      });
+      return { weeks: weeks, series: series };
+    }
+
+    // Color tokens that match the type-pill palette in the records list
+    var TYPE_COLORS = {
+      vomit:    { fill: 'rgba(194, 97, 63, .85)', soft: 'rgba(194, 97, 63, .15)', line: '#c2613f' },
+      diarrhea: { fill: 'rgba(146, 99, 22, .85)', soft: 'rgba(146, 99, 22, .15)', line: '#926316' }
+    };
+
+    // Compose chart config based on mode
+    var chartConfig = null;
+
+    if (mode === 'types') {
+      var counts = {};
+      rs.forEach(function (r) { counts[label(r.type)] = (counts[label(r.type)] || 0) + 1; });
+      labels = Object.keys(counts);
+      data = labels.map(function (k) { return counts[k]; });
+      chartType = 'bar';
+      name = 'Log types';
+    } else if (mode === 'vomit-weekly' || mode === 'diarrhea-weekly') {
+      var typeKey = mode === 'vomit-weekly' ? 'vomit' : 'diarrhea';
+      var bucket = buildWeeklyBuckets([typeKey], 12);
+      labels = bucket.weeks.map(shortWeekLabel);
+      data = bucket.series[typeKey];
+      chartType = 'bar';
+      name = label(typeKey) + ' / week';
+      var col = TYPE_COLORS[typeKey];
+      chartConfig = {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: name,
+            data: data,
+            backgroundColor: col.fill,
+            borderColor: col.line,
+            borderWidth: 0,
+            borderRadius: 4,
+          }]
+        }
+      };
+    } else if (mode === 'gi-weekly') {
+      var bucket2 = buildWeeklyBuckets(['vomit', 'diarrhea'], 12);
+      labels = bucket2.weeks.map(shortWeekLabel);
+      chartType = 'bar';
+      name = 'GI episodes / week';
+      // Show empty-state if BOTH series are entirely zero
+      var totalEvents = bucket2.series.vomit.concat(bucket2.series.diarrhea).reduce(function (s, n) { return s + n; }, 0);
+      data = totalEvents ? [1] : []; // marker so the empty-state branch below doesn't trigger when there ARE events
+      chartConfig = {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Vomit',
+              data: bucket2.series.vomit,
+              backgroundColor: TYPE_COLORS.vomit.fill,
+              borderColor: TYPE_COLORS.vomit.line,
+              borderWidth: 0,
+              borderRadius: 4,
+              stack: 'gi',
+            },
+            {
+              label: 'Diarrhea',
+              data: bucket2.series.diarrhea,
+              backgroundColor: TYPE_COLORS.diarrhea.fill,
+              borderColor: TYPE_COLORS.diarrhea.line,
+              borderWidth: 0,
+              borderRadius: 4,
+              stack: 'gi',
+            }
+          ]
+        }
+      };
+    } else {
+      rs.forEach(function (r) {
+        if (r[mode] !== '' && r[mode] != null) {
+          labels.push(formatDate(r.date));
+          data.push(Number(r[mode]));
+        }
+      });
+    }
+
+    var isWeeklyMode = mode === 'vomit-weekly' || mode === 'diarrhea-weekly' || mode === 'gi-weekly';
+
+    // Empty state: for weekly modes we always have padded labels (≥12 weeks),
+    // so the real "no data" signal is whether `data` ended up empty (we set it to []
+    // when no events of the relevant type exist).
+    var isEmpty = isWeeklyMode ? (mode === 'gi-weekly' ? !data.length : data.every(function (n) { return n === 0; }))
+                                : !labels.length;
+    if (isEmpty) {
+      var ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#8a8278';
+      ctx.font = '13px Geist, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('No data for ' + name.toLowerCase() + ' yet', canvas.width / 2, canvas.height / 2);
+      return;
+    }
+
+    // Default config for the simple numeric / types modes
+    if (!chartConfig) {
+      chartConfig = {
+        type: chartType,
+        data: {
+          labels: labels,
+          datasets: [{
+            label: name,
+            data: data,
+            tension: 0.35,
+            fill: chartType === 'line',
+            backgroundColor: chartType === 'line' ? 'rgba(107, 142, 90, .12)' : 'rgba(107, 142, 90, .8)',
+            borderColor: '#6b8e5a',
+            borderWidth: 2,
+            pointRadius: chartType === 'line' ? 4 : 0,
+            pointBackgroundColor: '#6b8e5a',
+            pointBorderColor: 'white',
+            pointBorderWidth: 2,
+            borderRadius: chartType === 'bar' ? 4 : 0,
+          }]
+        }
+      };
+    }
+
+    var showLegend = mode === 'gi-weekly';
+
+    chartConfig.options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: showLegend,
+          position: 'top',
+          align: 'end',
+          labels: {
+            color: '#4a4640',
+            font: { family: 'Geist', size: 12, weight: '500' },
+            usePointStyle: true,
+            pointStyle: 'rectRounded',
+            padding: 12,
+            boxWidth: 12,
+            boxHeight: 12,
+          }
+        },
+        tooltip: {
+          backgroundColor: '#1f1d1a',
+          titleFont: { family: 'Geist', weight: '600' },
+          bodyFont: { family: 'Geist' },
+          padding: 10,
+          cornerRadius: 8,
+          callbacks: isWeeklyMode ? {
+            title: function (items) { return 'Week of ' + (items[0] && items[0].label); },
+            label: function (item) {
+              var v = item.parsed.y;
+              return item.dataset.label + ': ' + v + (v === 1 ? ' episode' : ' episodes');
+            }
+          } : undefined
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: mode !== 'weight',
+          stacked: mode === 'gi-weekly',
+          ticks: { precision: 0, color: '#8a8278', font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined },
+          grid: { color: '#e3dccc' },
+          title: isWeeklyMode ? { display: true, text: 'Episodes', color: '#8a8278', font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
+        },
+        x: {
+          stacked: mode === 'gi-weekly',
+          ticks: { color: '#8a8278', font: { family: 'Geist', size: 11 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 16 },
+          grid: { display: false }
+        }
+      }
+    };
+
+    chart = new Chart(canvas, chartConfig);
+  }
+
+  // ===== PET CRUD =====
+  function addPetFromSidebar() {
+    var name = $('pName').value.trim();
+    if (!name) return toast('Please enter a name');
+    var pet = {
+      id: uid(),
+      name: name,
+      icon: $('pIcon').value,
+      species: $('pSpecies').value,
+      breed: $('pBreed').value.trim(),
+      birthday: $('pBirthday').value
+    };
+    state.pets.push(pet);
+    activePetId = pet.id;
+    ['pName', 'pBreed', 'pBirthday'].forEach(function (id) { $(id).value = ''; });
+    save();
+    render();
+    toast('Pet added');
+  }
+
+  function openAddPetModal() {
+    modalTitle.textContent = 'Add a pet';
+    modalBody.innerHTML =
+      '<div class="form-grid cols-2">' +
+        '<label class="field">Name<input id="mName" placeholder="Felix" autocomplete="off" autofocus></label>' +
+        '<label class="field">Icon<select id="mIcon">' +
+          '<option>🐱</option><option>🐶</option><option>🐰</option><option>🐦</option>' +
+          '<option>🐹</option><option>🐢</option><option>🐠</option><option>🦎</option><option>🐾</option>' +
+        '</select></label>' +
+      '</div>' +
+      '<div class="form-grid cols-2" style="margin-top:10px">' +
+        '<label class="field">Species<select id="mSpecies">' +
+          '<option>Cat</option><option>Dog</option><option>Rabbit</option><option>Bird</option>' +
+          '<option>Reptile</option><option>Fish</option><option>Other</option>' +
+        '</select></label>' +
+        '<label class="field">Breed<input id="mBreed" placeholder="Tuxedo" autocomplete="off"></label>' +
+      '</div>' +
+      '<label class="field" style="margin-top:10px">Birthday<input type="date" id="mBirthday"></label>' +
+      '<div class="form-actions" style="margin-top:14px">' +
+        '<button id="mSave" class="sage" type="button">Add pet</button>' +
+        '<button id="mCancel" class="ghost" type="button">Cancel</button>' +
+      '</div>';
+    openModal();
+    $('mName').focus();
+    $('mSave').addEventListener('click', function () {
+      var name = $('mName').value.trim();
+      if (!name) return toast('Please enter a name');
+      var pet = {
+        id: uid(),
+        name: name,
+        icon: $('mIcon').value,
+        species: $('mSpecies').value,
+        breed: $('mBreed').value.trim(),
+        birthday: $('mBirthday').value
+      };
+      state.pets.push(pet);
+      activePetId = pet.id;
+      save();
+      render();
+      closeModal();
+      toast('Pet added');
+    });
+    $('mCancel').addEventListener('click', closeModal);
+  }
+
+  function openEditPetModal(pet) {
+    modalTitle.textContent = 'Edit ' + pet.name;
+    modalBody.innerHTML =
+      '<div class="form-grid cols-2">' +
+        '<label class="field">Name<input id="mName" value="' + esc(pet.name) + '" autocomplete="off"></label>' +
+        '<label class="field">Icon<select id="mIcon">' +
+          ['🐱','🐶','🐰','🐦','🐹','🐢','🐠','🦎','🐾'].map(function(i){
+            return '<option' + (pet.icon === i ? ' selected' : '') + '>' + i + '</option>';
+          }).join('') +
+        '</select></label>' +
+      '</div>' +
+      '<div class="form-grid cols-2" style="margin-top:10px">' +
+        '<label class="field">Species<select id="mSpecies">' +
+          ['Cat','Dog','Rabbit','Bird','Reptile','Fish','Other'].map(function(s){
+            return '<option' + (pet.species === s ? ' selected' : '') + '>' + s + '</option>';
+          }).join('') +
+        '</select></label>' +
+        '<label class="field">Breed<input id="mBreed" value="' + esc(pet.breed || '') + '" autocomplete="off"></label>' +
+      '</div>' +
+      '<label class="field" style="margin-top:10px">Birthday<input type="date" id="mBirthday" value="' + esc(pet.birthday || '') + '"></label>' +
+      '<div class="form-actions" style="margin-top:14px">' +
+        '<button id="mSave" class="sage" type="button">Save changes</button>' +
+        '<button id="mCancel" class="ghost" type="button">Cancel</button>' +
+      '</div>';
+    openModal();
+    $('mSave').addEventListener('click', function () {
+      var name = $('mName').value.trim();
+      if (!name) return toast('Name required');
+      pet.name = name;
+      pet.icon = $('mIcon').value;
+      pet.species = $('mSpecies').value;
+      pet.breed = $('mBreed').value.trim();
+      pet.birthday = $('mBirthday').value;
+      save();
+      render();
+      closeModal();
+      toast('Pet updated');
+    });
+    $('mCancel').addEventListener('click', closeModal);
+  }
+
+  function confirmDeletePet(petArg) {
+    var p = petArg || activePet();
+    if (!p) return;
+    if (!confirm('Delete ' + p.name + ' and all of their logs? This cannot be undone.')) return;
+    state.pets = state.pets.filter(function (x) { return x.id !== p.id; });
+    state.records = state.records.filter(function (r) { return r.petId !== p.id; });
+    if (activePetId === p.id) {
+      activePetId = state.pets[0] ? state.pets[0].id : null;
+    }
+    save();
+    render();
+    toast('Pet deleted');
+  }
+
+  // ===== LOG CRUD =====
+  function handleRecordSubmit(e) {
+    e.preventDefault();
+    if (!activePetId) return toast('Add a pet first');
+    var record = {
+      id: editingLogId || uid(),
+      petId: activePetId,
+      date: $('rDate').value || today(),
+      type: $('rType').value,
+      mood: num($('rMood').value),
+      weight: num($('rWeight').value),
+      activity: num($('rActivity').value),
+      cost: num($('rCost').value),
+      food: $('rFood').value.trim(),
+      med: $('rMed').value.trim(),
+      note: $('rNote').value.trim()
+    };
+    if (editingLogId) {
+      state.records = state.records.map(function (r) { return r.id === editingLogId ? record : r; });
+      toast('Log updated');
+    } else {
+      state.records.push(record);
+      toast('Log added');
+    }
+    editingLogId = null;
+    save();
+    clearRecordForm();
+    render();
+    if (window.matchMedia('(max-width: 720px)').matches) switchTab('logs');
+  }
+
+  function editLog(id) {
+    var r = state.records.find(function (x) { return x.id === id; });
+    if (!r) return;
+    editingLogId = id;
+    $('rId').value = id;
+    $('rDate').value = r.date;
+    $('rType').value = r.type;
+    $('rMood').value = r.mood;
+    $('rWeight').value = r.weight;
+    $('rActivity').value = r.activity;
+    $('rCost').value = r.cost;
+    $('rFood').value = r.food || '';
+    $('rMed').value = r.med || '';
+    $('rNote').value = r.note || '';
+    $('formTitle').textContent = 'Edit log';
+    $('formHint').textContent = 'Editing existing entry';
+    $('submitBtn').textContent = 'Save changes';
+    if (window.matchMedia('(max-width: 720px)').matches) switchTab('add');
+    // Scroll the form into view on smaller screens
+    document.querySelector('.record-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function deleteLog(id) {
+    if (!confirm('Delete this log?')) return;
+    state.records = state.records.filter(function (r) { return r.id !== id; });
+    if (editingLogId === id) {
+      editingLogId = null;
+      clearRecordForm();
+    }
+    save();
+    render();
+    toast('Log deleted');
+  }
+
+  function clearRecordForm() {
+    editingLogId = null;
+    $('rId').value = '';
+    ['rMood', 'rWeight', 'rActivity', 'rCost', 'rFood', 'rMed', 'rNote'].forEach(function (id) { $(id).value = ''; });
+    $('rDate').valueAsDate = new Date();
+    $('rType').value = 'weight';
+    $('formTitle').textContent = 'Add health log';
+    $('formHint').textContent = 'All fields optional';
+    $('submitBtn').textContent = 'Add log';
+  }
+
+  // ===== EXPORT / IMPORT =====
+  function exportJson() {
+    download('pet-health-tracker.json', JSON.stringify(state, null, 2), 'application/json');
+    toast('JSON exported');
+  }
+
+  function exportCsv() {
+    var rows = [['pet', 'species', 'breed', 'date', 'type', 'weight', 'mood', 'activity', 'cost', 'food', 'medication', 'note']];
+    state.records.forEach(function (r) {
+      var p = state.pets.find(function (x) { return x.id === r.petId; }) || {};
+      rows.push([p.name || '', p.species || '', p.breed || '', r.date, r.type, r.weight, r.mood, r.activity, r.cost, r.food, r.med, r.note]);
+    });
+    var csv = rows.map(function (row) {
+      return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
+    }).join('\n');
+    download('pet-health-tracker.csv', csv, 'text/csv');
+    toast('CSV exported');
+  }
+
+  function triggerImport() { $('fileInput').click(); }
+
+  function handleImport(e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var data = JSON.parse(reader.result);
+        if (!data || !Array.isArray(data.pets) || !Array.isArray(data.records)) {
+          throw new Error('Invalid format');
+        }
+        if (!confirm('Import will replace your current data. Continue?')) {
+          $('fileInput').value = '';
+          return;
+        }
+        state = { pets: data.pets, records: data.records };
+        activePetId = state.pets[0] ? state.pets[0].id : null;
+        save();
+        render();
+        toast('Data imported');
+      } catch (err) {
+        toast('Could not read file');
+      }
+      $('fileInput').value = '';
+    };
+    reader.readAsText(f);
+  }
+
+  // ===== MOBILE TAB / MODAL HELPERS =====
+  function applyMobileTab() {
+    if (!window.matchMedia('(max-width: 720px)').matches) {
+      // Desktop: all panels visible
+      document.querySelectorAll('.panel').forEach(function (el) { el.classList.add('active'); });
+      return;
+    }
+    switchTab('home');
+  }
+
+  function switchTab(tab) {
+    if (!window.matchMedia('(max-width: 720px)').matches) return; // desktop ignores
+    var panelMap = { home: 'panel-home', add: 'panel-log', trends: 'panel-log', logs: 'panel-log' };
+    document.querySelectorAll('.panel').forEach(function (el) {
+      el.classList.toggle('active', el.id === panelMap[tab]);
+    });
+    document.querySelectorAll('.mobile-nav button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.tab === tab);
+    });
+    // Within the workspace, scroll the relevant section into view
+    if (tab === 'add') {
+      setTimeout(function () { document.querySelector('.record-form').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+    } else if (tab === 'trends') {
+      setTimeout(function () { document.getElementById('trends-card').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+    } else if (tab === 'logs') {
+      setTimeout(function () { document.querySelector('.records-card').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+    } else if (tab === 'home') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  function openMobileMenu() {
+    modalTitle.textContent = 'More';
+    modalBody.innerHTML =
+      '<div class="menu-list">' +
+        '<button class="menu-item" id="miAddPet" type="button"><span class="menu-icon">🐾</span>Add pet</button>' +
+        '<button class="menu-item" id="miImport" type="button"><span class="menu-icon">⬆</span>Import JSON</button>' +
+        '<button class="menu-item" id="miExportCsv" type="button"><span class="menu-icon">📊</span>Export CSV</button>' +
+        '<button class="menu-item" id="miExportJson" type="button"><span class="menu-icon">💾</span>Export JSON</button>' +
+      '</div>';
+    openModal();
+    $('miAddPet').addEventListener('click', function () { closeModal(); setTimeout(openAddPetModal, 250); });
+    $('miImport').addEventListener('click', function () { closeModal(); triggerImport(); });
+    $('miExportCsv').addEventListener('click', function () { closeModal(); exportCsv(); });
+    $('miExportJson').addEventListener('click', function () { closeModal(); exportJson(); });
+  }
+
+  function openModal() { modal.classList.add('open'); document.body.style.overflow = 'hidden'; }
+  function closeModal() { modal.classList.remove('open'); document.body.style.overflow = ''; modalBody.innerHTML = ''; }
+
+  // Re-apply panels on resize across desktop/mobile boundary
+  var resizeT;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(applyMobileTab, 150);
+  });
+
+  // ===== UTIL =====
+  function activePet() { return state.pets.find(function (p) { return p.id === activePetId; }); }
+  function petRecords() { return state.records.filter(function (r) { return r.petId === activePetId; }); }
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { pets: [], records: [] };
+      var parsed = JSON.parse(raw);
+      return {
+        pets: Array.isArray(parsed.pets) ? parsed.pets : [],
+        records: Array.isArray(parsed.records) ? parsed.records : []
+      };
+    } catch (e) { return { pets: [], records: [] }; }
+  }
+  function save() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (e) { toast('Could not save — storage full?'); }
+  }
+  function seed() {
+    var p = { id: uid(), name: 'Felix', icon: '🐱', species: 'Cat', breed: 'Tuxedo', birthday: '2020-04-18' };
+    state = {
+      pets: [p],
+      records: [
+        { id: uid(), petId: p.id, date: '2026-04-12', type: 'vomit', weight: '', mood: 2, activity: '', cost: '', food: '', med: '', note: 'Once in the morning, hairball.' },
+        { id: uid(), petId: p.id, date: '2026-04-19', type: 'diarrhea', weight: '', mood: 2, activity: '', cost: '', food: 'New kibble', med: '', note: 'Started after switching brands.' },
+        { id: uid(), petId: p.id, date: '2026-04-21', type: 'vomit', weight: '', mood: 3, activity: '', cost: '', food: '', med: '', note: 'Ate too fast at dinner.' },
+        { id: uid(), petId: p.id, date: '2026-04-26', type: 'weight', weight: 12.0, mood: 4, activity: 12, cost: '', food: '', med: '', note: 'Normal appetite, playful.' },
+        { id: uid(), petId: p.id, date: '2026-04-28', type: 'medication', weight: '', mood: 3, activity: 5, cost: '', food: '', med: 'Antibiotic', note: 'No side effects observed.' },
+        { id: uid(), petId: p.id, date: '2026-05-01', type: 'symptom', weight: '', mood: 3, activity: 8, cost: '', food: '', med: '', note: 'Light sneezing during morning.' }
+      ]
+    };
+    save();
+  }
+  function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function num(v) { return v === '' || v == null ? '' : Number(v); }
+  function byDate(a, b) { return String(a.date).localeCompare(String(b.date)); }
+  function avg(a) { return a.reduce(function (x, y) { return x + y; }, 0) / a.length; }
+  function label(t) {
+    return ({
+      weight: 'Weight', meal: 'Meal', medication: 'Medication',
+      activity: 'Activity', symptom: 'Symptom', vet: 'Vet visit',
+      vomit: 'Vomit', diarrhea: 'Diarrhea',
+      mood: 'Mood', cost: 'Cost', types: 'Types'
+    })[t] || t;
+  }
+  function age(b) {
+    if (!b) return '';
+    var ms = Date.now() - new Date(b).getTime();
+    if (isNaN(ms) || ms < 0) return '';
+    var y = ms / 31557600000;
+    return ' · ' + (y < 1 ? Math.max(1, Math.round(y * 12)) + ' mo' : y.toFixed(1) + ' yr');
+  }
+  function formatDate(d) {
+    if (!d) return '';
+    try {
+      var dt = new Date(d + 'T00:00:00');
+      return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) { return d; }
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[m];
+    });
+  }
+  var toastT;
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { t.classList.remove('show'); }, 1800);
+  }
+  function download(name, text, type) {
+    var blob = new Blob([text], { type: type });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 500);
+  }
+})();
+</script>
+</body>
+</html>
