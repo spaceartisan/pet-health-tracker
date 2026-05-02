@@ -1019,7 +1019,7 @@ h1 {
 
   // Mobile bottom nav
   document.querySelectorAll('.mobile-nav button').forEach(function (b) {
-    b.addEventListener('click', function () { switchTab(b.dataset.tab); });
+    b.addEventListener('click', function () { switchTab(b.dataset.tab, true); });
   });
   $('mobileFab').addEventListener('click', openMobileMenu);
 
@@ -1055,7 +1055,7 @@ h1 {
         '</div>';
       b.addEventListener('click', function () {
         activePetId = p.id;
-        if (window.matchMedia('(max-width: 720px)').matches) switchTab('home');
+        if (window.matchMedia('(max-width: 720px)').matches) switchTab('home', true);
         render();
       });
       list.appendChild(b);
@@ -1546,7 +1546,7 @@ h1 {
     save();
     clearRecordForm();
     render();
-    if (window.matchMedia('(max-width: 720px)').matches) switchTab('logs');
+    if (window.matchMedia('(max-width: 720px)').matches) switchTab('logs', true);
   }
 
   function editLog(id) {
@@ -1566,7 +1566,7 @@ h1 {
     $('formTitle').textContent = 'Edit log';
     $('formHint').textContent = 'Editing existing entry';
     $('submitBtn').textContent = 'Save changes';
-    if (window.matchMedia('(max-width: 720px)').matches) switchTab('add');
+    if (window.matchMedia('(max-width: 720px)').matches) switchTab('add', true);
     // Scroll the form into view on smaller screens
     document.querySelector('.record-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -1643,16 +1643,31 @@ h1 {
   }
 
   // ===== MOBILE TAB / MODAL HELPERS =====
+  // Track whether we're currently in mobile layout so resize handlers can detect
+  // boundary crossings instead of running tab-switching logic on every resize.
+  var isMobileLayout = window.matchMedia('(max-width: 720px)').matches;
+
   function applyMobileTab() {
-    if (!window.matchMedia('(max-width: 720px)').matches) {
-      // Desktop: all panels visible
+    var nowMobile = window.matchMedia('(max-width: 720px)').matches;
+    if (!nowMobile) {
+      // Desktop: ensure all panels are visible. Cheap to re-apply but safe.
       document.querySelectorAll('.panel').forEach(function (el) { el.classList.add('active'); });
+      // Clear any active state on the mobile nav buttons (they're hidden by CSS but the class persists)
+      document.querySelectorAll('.mobile-nav button').forEach(function (b) {
+        b.classList.toggle('active', b.dataset.tab === 'home');
+      });
+      isMobileLayout = false;
       return;
     }
-    switchTab('home');
+    // Only force tab state on mobile when transitioning IN from desktop;
+    // otherwise leave the user on whatever tab they're viewing.
+    if (!isMobileLayout) {
+      switchTab('home', /* userInitiated */ false);
+    }
+    isMobileLayout = true;
   }
 
-  function switchTab(tab) {
+  function switchTab(tab, userInitiated) {
     if (!window.matchMedia('(max-width: 720px)').matches) return; // desktop ignores
     var panelMap = { home: 'panel-home', add: 'panel-log', trends: 'panel-log', logs: 'panel-log' };
     document.querySelectorAll('.panel').forEach(function (el) {
@@ -1661,7 +1676,9 @@ h1 {
     document.querySelectorAll('.mobile-nav button').forEach(function (b) {
       b.classList.toggle('active', b.dataset.tab === tab);
     });
-    // Within the workspace, scroll the relevant section into view
+    // Only auto-scroll when the user explicitly tapped a tab.
+    // This prevents resize/orientation events from yanking the page to the top.
+    if (!userInitiated) return;
     if (tab === 'add') {
       setTimeout(function () { document.querySelector('.record-form').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
     } else if (tab === 'trends') {
