@@ -2,7 +2,7 @@
 
 A responsive web app for tracking the health and daily care of your pets. Works on mobile and desktop. No installation required.
 
-**Live app:** https://wclif.github.io/pet-health-tracker *(update with your actual URL)*
+**Live app:** https://spaceartisan.github.io/pet-health-tracker/
 
 ## Features
 
