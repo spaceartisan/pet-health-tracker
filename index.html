@@ -796,6 +796,8 @@ h1 {
   }
 }
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
@@ -809,6 +811,7 @@ h1 {
       </div>
     </div>
     <div class="header-actions">
+      <button id="authBtn" class="secondary" type="button">☁ Cloud sync</button>
       <button id="addPetBtn" class="secondary" type="button">＋ Add pet</button>
       <button id="importBtn" class="secondary" type="button">Import</button>
       <button id="exportCsvBtn" class="sage" type="button">Export CSV</button>
@@ -985,8 +988,21 @@ h1 {
   // ===== STATE =====
   // Keep storage key compatible with v1.2.0 so existing user data is preserved.
   var STORAGE_KEY = 'petHealth.responsive.v120';
+
+  // ===== FIREBASE =====
+  var db = null;
+  var SYNC_CODE_KEY = 'petHealth.syncCode';
+  var syncCode = localStorage.getItem(SYNC_CODE_KEY) || null;
+  try {
+    firebase.initializeApp({
+      apiKey: 'AIzaSyBcKEqOQT5LbxdZwIk9JoIxEU0retR5Yew',
+      projectId: 'pet-tracker-28832',
+      appId: '1:915436677489:web:9dd0b41b60e7be37c96ed0'
+    });
+    db = firebase.firestore();
+  } catch (e) { console.warn('Firebase init failed:', e); }
+
   var state = load();
-  if (!state.pets.length) seed();
   var activePetId = state.pets[0] ? state.pets[0].id : null;
   var chart = null;
   var editingLogId = null;
@@ -1002,6 +1018,7 @@ h1 {
 
   // ===== EVENT LISTENERS =====
   $('savePet').addEventListener('click', addPetFromSidebar);
+  $('authBtn').addEventListener('click', handleAuthClick);
   $('addPetBtn').addEventListener('click', openAddPetModal);
   $('recordForm').addEventListener('submit', handleRecordSubmit);
   $('clearForm').addEventListener('click', clearRecordForm);
@@ -1025,7 +1042,15 @@ h1 {
 
   // ===== INITIAL RENDER =====
   applyMobileTab(); // default tab on mobile
+  if (!state.pets.length) seed();
+  activePetId = state.pets[0] ? state.pets[0].id : null;
+  renderAuthBtn();
   render();
+
+  // Auto-sync on load if a code is already stored on this device
+  if (db && syncCode) {
+    loadFromCloud(function () { render(); });
+  }
 
   // ===== RENDER PIPELINE =====
   function render() {
@@ -1694,12 +1719,14 @@ h1 {
     modalTitle.textContent = 'More';
     modalBody.innerHTML =
       '<div class="menu-list">' +
+        '<button class="menu-item" id="miAuth" type="button"><span class="menu-icon">☁</span>' + (syncCode ? 'Cloud sync · ' + syncCode : 'Set up cloud sync') + '</button>' +
         '<button class="menu-item" id="miAddPet" type="button"><span class="menu-icon">🐾</span>Add pet</button>' +
         '<button class="menu-item" id="miImport" type="button"><span class="menu-icon">⬆</span>Import JSON</button>' +
         '<button class="menu-item" id="miExportCsv" type="button"><span class="menu-icon">📊</span>Export CSV</button>' +
         '<button class="menu-item" id="miExportJson" type="button"><span class="menu-icon">💾</span>Export JSON</button>' +
       '</div>';
     openModal();
+    $('miAuth').addEventListener('click', function () { closeModal(); handleAuthClick(); });
     $('miAddPet').addEventListener('click', function () { closeModal(); setTimeout(openAddPetModal, 250); });
     $('miImport').addEventListener('click', function () { closeModal(); triggerImport(); });
     $('miExportCsv').addEventListener('click', function () { closeModal(); exportCsv(); });
@@ -1733,6 +1760,11 @@ h1 {
   function save() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
     catch (e) { toast('Could not save — storage full?'); }
+    if (db && syncCode) {
+      // Use merge:true so _email and _createdAt written at code-generation time are not erased
+      db.collection('vaults').doc(syncCode).set(state, { merge: true })
+        .catch(function () { /* silent — localStorage copy still intact */ });
+    }
   }
   function seed() {
     var p = { id: uid(), name: 'Felix', icon: '🐱', species: 'Cat', breed: 'Tuxedo', birthday: '2020-04-18' };
@@ -1748,6 +1780,120 @@ h1 {
       ]
     };
     save();
+  }
+  function loadFromCloud(cb) {
+    db.collection('vaults').doc(syncCode).get()
+      .then(function (doc) {
+        if (doc.exists) {
+          var d = doc.data();
+          state = {
+            pets: Array.isArray(d.pets) ? d.pets : [],
+            records: Array.isArray(d.records) ? d.records : []
+          };
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+        } else if (state.pets.length) {
+          // First time this code is used — push existing local data up
+          db.collection('vaults').doc(syncCode).set(state).catch(function () {});
+          toast('Local data backed up to cloud ☁');
+        }
+        activePetId = state.pets[0] ? state.pets[0].id : null;
+        cb();
+      })
+      .catch(function () {
+        toast('Cloud sync failed, using local data');
+        activePetId = state.pets[0] ? state.pets[0].id : null;
+        cb();
+      });
+  }
+  function handleAuthClick() { openSyncModal(); }
+  function openSyncModal() {
+    modalTitle.textContent = 'Cloud Sync';
+    if (syncCode) {
+      modalBody.innerHTML =
+        '<p style="font-size:13px;color:var(--ink-2);margin:0 0 14px">Your sync code — enter this on any other device to load your data. Keep it somewhere safe.</p>' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">' +
+          '<code style="font-family:monospace;font-size:26px;font-weight:700;letter-spacing:.18em;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 14px;flex:1;text-align:center">' + esc(syncCode) + '</code>' +
+          '<button id="msCopy" class="secondary" type="button" style="flex-shrink:0;min-height:44px">Copy</button>' +
+        '</div>' +
+        '<label class="field" style="margin-bottom:12px">Add or update email<input type="email" id="msEmailUpdate" placeholder="you@example.com" autocomplete="email"></label>' +
+        '<button id="msSaveEmail" class="secondary" type="button" style="width:100%;margin-bottom:10px">Save email</button>' +
+        '<button id="msDisconnect" class="ghost" type="button" style="width:100%;color:var(--danger)">Disconnect this device</button>';
+      openModal();
+      $('msCopy').addEventListener('click', function () {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(syncCode).then(function () { toast('Code copied!'); });
+        } else {
+          toast(syncCode);
+        }
+      });
+      $('msSaveEmail').addEventListener('click', function () {
+        var email = ($('msEmailUpdate').value || '').trim().toLowerCase();
+        if (!email) return toast('Please enter an email address');
+        if (db) {
+          db.collection('vaults').doc(syncCode).set({ _email: email }, { merge: true })
+            .then(function () { toast('Email saved ☁'); $('msEmailUpdate').value = ''; })
+            .catch(function () { toast('Could not save email'); });
+        }
+      });
+      $('msDisconnect').addEventListener('click', function () {
+        if (!confirm('Disconnect cloud sync on this device? Your local data is not deleted.')) return;
+        syncCode = null;
+        localStorage.removeItem(SYNC_CODE_KEY);
+        renderAuthBtn();
+        closeModal();
+        toast('Cloud sync disconnected');
+      });
+    } else {
+      modalBody.innerHTML =
+        '<p style="font-size:13px;color:var(--ink-2);margin:0 0 16px">Sync your data across devices — no account needed. Save your code somewhere safe; it\'s the only way to access your data from another device.</p>' +
+        '<label class="field" style="margin-bottom:12px">Email (optional — stored with your vault so you can look up your code later)<input type="email" id="msEmail" placeholder="you@example.com" autocomplete="email"></label>' +
+        '<button id="msGenerate" class="sage" type="button" style="width:100%;margin-bottom:16px">Generate a new code</button>' +
+        '<p style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px">Already have a code?</p>' +
+        '<div style="display:flex;gap:8px">' +
+          '<input id="msExisting" placeholder="XXXXXXXX" maxlength="8" style="flex:1;font-family:monospace;font-size:18px;text-transform:uppercase;letter-spacing:.12em">' +
+          '<button id="msLoad" class="secondary" type="button" style="flex-shrink:0;min-height:44px">Load</button>' +
+        '</div>';
+      openModal();
+      $('msGenerate').addEventListener('click', function () {
+        var code = genCode();
+        var email = ($('msEmail').value || '').trim().toLowerCase();
+        syncCode = code;
+        localStorage.setItem(SYNC_CODE_KEY, code);
+        if (db) {
+          var doc = Object.assign({}, state, { _email: email, _createdAt: new Date().toISOString() });
+          db.collection('vaults').doc(code).set(doc).catch(function () {});
+        }
+        renderAuthBtn();
+        closeModal();
+        setTimeout(openSyncModal, 200);
+      });
+      $('msLoad').addEventListener('click', function () {
+        var entered = ($('msExisting').value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (entered.length !== 8) return toast('Code must be exactly 8 characters');
+        syncCode = entered;
+        localStorage.setItem(SYNC_CODE_KEY, entered);
+        renderAuthBtn();
+        closeModal();
+        if (db) { loadFromCloud(function () { render(); toast('Data loaded ☁'); }); }
+      });
+    }
+  }
+  function renderAuthBtn() {
+    var btn = $('authBtn');
+    if (!btn) return;
+    if (syncCode) {
+      btn.textContent = '☁ ' + syncCode;
+      btn.title = 'Cloud sync active — click to manage';
+    } else {
+      btn.textContent = '☁ Cloud sync';
+      btn.title = 'Set up sync across devices';
+    }
+  }
+  function genCode() {
+    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars, no ambiguous 0/O/1/I/L
+    var arr = new Uint8Array(8);
+    crypto.getRandomValues(arr);
+    return Array.from(arr).map(function (b) { return chars[b % 32]; }).join('');
   }
   function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
   function today() { return new Date().toISOString().slice(0, 10); }
