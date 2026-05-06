@@ -633,9 +633,10 @@ h1 {
     grid-template-columns: 1fr;
   }
   .sidebar .add-pet-form { display: none; }
-  .sidebar { overflow: hidden; min-width: 0; }
+  .sidebar { min-width: 0; width: 100%; overflow-x: hidden; }
   .pet-list {
     display: flex;
+    width: 100%;
     overflow-x: auto;
     gap: 8px;
     margin-bottom: 0;
@@ -645,8 +646,9 @@ h1 {
   }
   .pet-list::-webkit-scrollbar { display: none; }
   .pet-row {
-    flex: 0 0 auto;
-    min-width: 180px;
+    flex: 0 0 160px;
+    width: 160px;
+    min-width: 0;
     scroll-snap-align: start;
   }
   .sidebar .side-title { display: none; }
@@ -667,8 +669,8 @@ h1 {
 
   /* Mobile uses tabs; show only the active panel */
   .shell { display: block; }
-  .sidebar { padding: 12px; margin-bottom: 14px; border-radius: var(--radius-lg); }
-  .pet-row { min-width: 150px; min-height: 52px; }
+  .sidebar { padding: 12px; margin-bottom: 14px; border-radius: var(--radius-lg); overflow-x: hidden; width: 100%; }
+  .pet-row { flex: 0 0 140px; width: 140px; min-width: 0; min-height: 52px; }
 
   /* Tab panel system */
   .main { gap: 14px; }
