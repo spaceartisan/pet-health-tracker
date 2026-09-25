@@ -1059,15 +1059,16 @@ h1 {
 
   // ===== INITIAL RENDER =====
   applyMobileTab(); // default tab on mobile
-  if (!state.pets.length) seed();
+  // Only show the demo pet on a genuine first visit. Never on a device linked to
+  // a vault, and never again after the user deletes their last pet.
+  var firstVisit = localStorage.getItem(STORAGE_KEY) === null;
+  if (firstVisit && !syncCode) seed();
   activePetId = state.pets[0] ? state.pets[0].id : null;
   renderAuthBtn();
   render();
 
-  // Auto-sync on load if a code is already stored on this device
-  if (db && syncCode) {
-    loadFromCloud(function () { render(); });
-  }
+  // Keep this device in step with the cloud if it's linked to a vault
+  if (db && syncCode) startSync(false);
 
   // ===== RENDER PIPELINE =====
   function render() {
@@ -1533,11 +1534,15 @@ h1 {
     $('mSave').addEventListener('click', function () {
       var name = $('mName').value.trim();
       if (!name) return toast('Name required');
-      pet.name = name;
-      pet.icon = $('mIcon').value;
-      pet.species = $('mSpecies').value;
-      pet.breed = $('mBreed').value.trim();
-      pet.birthday = $('mBirthday').value;
+      // Look the pet up again: a cloud update may have replaced it while this was open.
+      var target = state.pets.find(function (x) { return x.id === pet.id; });
+      if (!target) { closeModal(); return toast('This pet was removed on another device'); }
+      target.name = name;
+      target.icon = $('mIcon').value;
+      target.species = $('mSpecies').value;
+      target.breed = $('mBreed').value.trim();
+      target.birthday = $('mBirthday').value;
+      delete target.sample; // an edited demo pet is now the user's own
       save();
       render();
       closeModal();
@@ -1774,53 +1779,151 @@ h1 {
       };
     } catch (e) { return { pets: [], records: [] }; }
   }
-  function save() {
+  // ===== SAVING & CLOUD SYNC =====
+  // Local storage is always written first, so nothing is lost if the cloud is
+  // unreachable. Cloud writes are held back until this device has received the
+  // latest copy of the vault, so a stale device can't overwrite newer data.
+  var PENDING_KEY = 'petHealth.unsyncedChanges';
+  var unsubscribe = null;      // stops the live cloud listener
+  var cloudReady = false;      // true once we hold the latest cloud copy
+  var writeSeq = 0;
+
+  function writeLocal() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
     catch (e) { toast('Could not save — storage full?'); }
-    if (db && syncCode) {
-      // Use merge:true so _email and _createdAt written at code-generation time are not erased
-      db.collection('vaults').doc(syncCode).set(state, { merge: true })
-        .catch(function () { /* silent — localStorage copy still intact */ });
+  }
+  function save() {
+    writeLocal();
+    pushToCloud();
+  }
+  function pushToCloud() {
+    if (!db || !syncCode) return;
+    // Remember there are changes the cloud hasn't confirmed yet. This survives
+    // the app being closed, so they're merged in next time instead of lost.
+    try { localStorage.setItem(PENDING_KEY, '1'); } catch (e) {}
+    if (!cloudReady) return; // sent once the latest cloud copy has arrived
+    var mySeq = ++writeSeq;
+    // merge:true keeps _email and _createdAt, which are written at code-generation time
+    db.collection('vaults').doc(syncCode)
+      .set({ pets: state.pets, records: state.records }, { merge: true })
+      .then(function () {
+        if (mySeq === writeSeq) { try { localStorage.removeItem(PENDING_KEY); } catch (e) {} }
+      })
+      .catch(reportSyncError);
+  }
+  function hasPendingChanges() {
+    try { return localStorage.getItem(PENDING_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  // Keep this device in step with the cloud. Any change made on another device
+  // arrives here within a second or two while the app is open.
+  function startSync(trustLocal) {
+    stopSync();
+    cloudReady = !!trustLocal;
+    var first = true;
+    unsubscribe = db.collection('vaults').doc(syncCode).onSnapshot(function (doc) {
+      // Our own write echoing back before the server confirms it — nothing new.
+      if (doc.metadata.hasPendingWrites) return;
+      var needsPush = false;
+      if (doc.exists) {
+        var remote = cleanState(doc.data());
+        if (first && !cloudReady && hasPendingChanges()) {
+          // Changes made on this device never reached the cloud (e.g. edited
+          // offline, then the app was closed). Keep both sides.
+          state = mergeById(remote, state);
+          needsPush = true;
+        } else {
+          state = remote;
+        }
+        writeLocal();
+      } else if (first && hasRealData()) {
+        // Vault doesn't exist yet — upload what's on this device.
+        needsPush = true;
+      }
+      cloudReady = true;
+      first = false;
+      if (needsPush) pushToCloud();
+      else if (doc.exists) { try { localStorage.removeItem(PENDING_KEY); } catch (e) {} }
+      afterRemoteChange();
+    }, function (err) {
+      reportSyncError(err);
+    });
+  }
+  function stopSync() {
+    if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+    cloudReady = false;
+  }
+  function afterRemoteChange() {
+    if (!state.pets.some(function (p) { return p.id === activePetId; })) {
+      activePetId = state.pets[0] ? state.pets[0].id : null;
+    }
+    // If the log being edited was deleted on another device, drop the edit.
+    if (editingLogId && !state.records.some(function (r) { return r.id === editingLogId; })) {
+      clearRecordForm();
+    }
+    render();
+  }
+  function cleanState(d) {
+    return {
+      pets: Array.isArray(d && d.pets) ? d.pets : [],
+      records: Array.isArray(d && d.records) ? d.records : []
+    };
+  }
+  // Combine two copies, keeping every pet and log from both. Where both have
+  // the same item, this device's version wins.
+  function mergeById(remote, local) {
+    function merge(a, b) {
+      var byId = {};
+      var order = [];
+      a.concat(b).forEach(function (item) {
+        if (!item || !item.id) return;
+        if (!(item.id in byId)) order.push(item.id);
+        byId[item.id] = item;
+      });
+      return order.map(function (id) { return byId[id]; });
+    }
+    return { pets: merge(remote.pets, local.pets), records: merge(remote.records, local.records) };
+  }
+  // True if this device holds anything besides the untouched demo data.
+  function hasRealData() {
+    return state.pets.some(function (p) { return !p.sample; }) ||
+           state.records.some(function (r) { return !r.sample; });
+  }
+
+  // Reports failed cloud writes. Throttled so rapid edits don't stack up a
+  // toast per save. Local data is always saved first.
+  var lastSyncErrorAt = 0;
+  function reportSyncError(err) {
+    var now = Date.now();
+    if (now - lastSyncErrorAt < 30000) return;
+    lastSyncErrorAt = now;
+    var code = err && err.code;
+    if (code === 'invalid-argument' || code === 'resource-exhausted') {
+      toast('Cloud vault is full — your data is still saved on this device');
+    } else {
+      toast('Cloud sync failed — your data is still saved on this device');
     }
   }
+
+  // Demo pet for a first visit. Marked `sample` so it's never mistaken for real
+  // data: it isn't uploaded to a new vault and doesn't block loading a code.
   function seed() {
-    var p = { id: uid(), name: 'Felix', icon: '🐱', species: 'Cat', breed: 'Tuxedo', birthday: '2020-04-18' };
+    var p = { id: uid(), name: 'Felix', icon: '🐱', species: 'Cat', breed: 'Tuxedo', birthday: '2020-04-18', sample: true };
+    function r(date, type, fields) {
+      return Object.assign({ id: uid(), petId: p.id, date: date, type: type, weight: '', mood: '', activity: '', cost: '', food: '', med: '', note: '', sample: true }, fields);
+    }
     state = {
       pets: [p],
       records: [
-        { id: uid(), petId: p.id, date: '2026-04-12', type: 'vomit', weight: '', mood: 2, activity: '', cost: '', food: '', med: '', note: 'Once in the morning, hairball.' },
-        { id: uid(), petId: p.id, date: '2026-04-19', type: 'diarrhea', weight: '', mood: 2, activity: '', cost: '', food: 'New kibble', med: '', note: 'Started after switching brands.' },
-        { id: uid(), petId: p.id, date: '2026-04-21', type: 'vomit', weight: '', mood: 3, activity: '', cost: '', food: '', med: '', note: 'Ate too fast at dinner.' },
-        { id: uid(), petId: p.id, date: '2026-04-26', type: 'weight', weight: 12.0, mood: 4, activity: 12, cost: '', food: '', med: '', note: 'Normal appetite, playful.' },
-        { id: uid(), petId: p.id, date: '2026-04-28', type: 'medication', weight: '', mood: 3, activity: 5, cost: '', food: '', med: 'Antibiotic', note: 'No side effects observed.' },
-        { id: uid(), petId: p.id, date: '2026-05-01', type: 'symptom', weight: '', mood: 3, activity: 8, cost: '', food: '', med: '', note: 'Light sneezing during morning.' }
+        r('2026-04-12', 'vomit', { mood: 2, note: 'Once in the morning, hairball.' }),
+        r('2026-04-19', 'diarrhea', { mood: 2, food: 'New kibble', note: 'Started after switching brands.' }),
+        r('2026-04-21', 'vomit', { mood: 3, note: 'Ate too fast at dinner.' }),
+        r('2026-04-26', 'weight', { weight: 12.0, mood: 4, activity: 12, note: 'Normal appetite, playful.' }),
+        r('2026-04-28', 'medication', { mood: 3, activity: 5, med: 'Antibiotic', note: 'No side effects observed.' }),
+        r('2026-05-01', 'symptom', { mood: 3, activity: 8, note: 'Light sneezing during morning.' })
       ]
     };
-    save();
-  }
-  function loadFromCloud(cb) {
-    db.collection('vaults').doc(syncCode).get()
-      .then(function (doc) {
-        if (doc.exists) {
-          var d = doc.data();
-          state = {
-            pets: Array.isArray(d.pets) ? d.pets : [],
-            records: Array.isArray(d.records) ? d.records : []
-          };
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
-        } else if (state.pets.length) {
-          // First time this code is used — push existing local data up
-          db.collection('vaults').doc(syncCode).set(state).catch(function () {});
-          toast('Local data backed up to cloud ☁');
-        }
-        activePetId = state.pets[0] ? state.pets[0].id : null;
-        cb();
-      })
-      .catch(function () {
-        toast('Cloud sync failed, using local data');
-        activePetId = state.pets[0] ? state.pets[0].id : null;
-        cb();
-      });
+    writeLocal();
   }
   function handleAuthClick() { openSyncModal(); }
   function openSyncModal() {
@@ -1854,8 +1957,10 @@ h1 {
       });
       $('msDisconnect').addEventListener('click', function () {
         if (!confirm('Disconnect cloud sync on this device? Your local data is not deleted.')) return;
+        stopSync();
         syncCode = null;
         localStorage.removeItem(SYNC_CODE_KEY);
+        try { localStorage.removeItem(PENDING_KEY); } catch (e) {}
         renderAuthBtn();
         closeModal();
         toast('Cloud sync disconnected');
@@ -1872,14 +1977,21 @@ h1 {
         '</div>';
       openModal();
       $('msGenerate').addEventListener('click', function () {
+        if (!db) return toast('Cloud sync is unavailable right now');
         var code = genCode();
         var email = ($('msEmail').value || '').trim().toLowerCase();
+        // Start the new vault with this device's data — but not the demo pet.
+        if (!hasRealData()) {
+          state = { pets: [], records: [] };
+          writeLocal();
+          activePetId = null;
+          render();
+        }
         syncCode = code;
         localStorage.setItem(SYNC_CODE_KEY, code);
-        if (db) {
-          var doc = Object.assign({}, state, { _email: email, _createdAt: new Date().toISOString() });
-          db.collection('vaults').doc(code).set(doc).catch(function () {});
-        }
+        var doc = { pets: state.pets, records: state.records, _email: email, _createdAt: new Date().toISOString() };
+        db.collection('vaults').doc(code).set(doc).catch(reportSyncError);
+        startSync(true); // this device's copy is the vault's starting point
         renderAuthBtn();
         closeModal();
         setTimeout(openSyncModal, 200);
@@ -1887,11 +1999,40 @@ h1 {
       $('msLoad').addEventListener('click', function () {
         var entered = ($('msExisting').value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
         if (entered.length !== 8) return toast('Code must be exactly 8 characters');
-        syncCode = entered;
-        localStorage.setItem(SYNC_CODE_KEY, entered);
-        renderAuthBtn();
-        closeModal();
-        if (db) { loadFromCloud(function () { render(); toast('Data loaded ☁'); }); }
+        // Codes never contain 0, 1, I or O — catch typos before they reach the server
+        if (!/^[A-HJ-NP-Z2-9]{8}$/.test(entered)) return toast('That code has an invalid character — codes never use 0, 1, I or O');
+        if (!db) return toast('Cloud sync is unavailable right now');
+        var loadBtn = $('msLoad');
+        loadBtn.disabled = true;
+        loadBtn.textContent = 'Checking…';
+        db.collection('vaults').doc(entered).get().then(function (doc) {
+          loadBtn.disabled = false;
+          loadBtn.textContent = 'Load';
+          // A mistyped code must not quietly create a new vault.
+          if (!doc.exists) return toast('No vault found with that code — check it and try again');
+          var remote = cleanState(doc.data());
+          if (hasRealData() && !confirm(
+            'Replace the data on this device with the data saved under ' + entered + '?\n\n' +
+            'This device: ' + state.pets.length + ' pet(s), ' + state.records.length + ' log(s)\n' +
+            'Cloud vault: ' + remote.pets.length + ' pet(s), ' + remote.records.length + ' log(s)\n\n' +
+            'To keep this device\'s data, cancel and use Export JSON first.'
+          )) return;
+          syncCode = entered;
+          localStorage.setItem(SYNC_CODE_KEY, entered);
+          try { localStorage.removeItem(PENDING_KEY); } catch (e) {}
+          state = remote;
+          writeLocal();
+          activePetId = null;
+          afterRemoteChange();
+          startSync(false);
+          renderAuthBtn();
+          closeModal();
+          toast('Data loaded ☁');
+        }).catch(function () {
+          loadBtn.disabled = false;
+          loadBtn.textContent = 'Load';
+          toast('Could not reach the cloud — check your connection and try again');
+        });
       });
     }
   }
