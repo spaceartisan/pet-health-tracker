@@ -953,6 +953,13 @@ h1 {
 }
 .small-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 14px 0 6px; }
 
+/* ============ WEIGHT INPUT ============ */
+.weight-inputs { display: flex; gap: 6px; }
+.weight-inputs input { min-width: 0; flex: 1; }
+.weight-inputs input[hidden] { display: none; }
+.unit-select { width: auto; min-height: 28px; padding: 2px 6px; font-size: 12px; margin-left: auto; text-transform: none; letter-spacing: 0; }
+.routine-actions .wt-oz { width: 64px; }
+
 /* ============ QUICK LABELS & PLAY SIZE ============ */
 .label-panel { display: grid; gap: 12px; }
 .label-panel:empty { display: none; }
@@ -969,6 +976,13 @@ h1 {
 .new-label { display: flex; gap: 6px; }
 .new-label input { min-height: 36px; padding: 6px 10px; }
 .new-label button { min-height: 36px; padding: 6px 12px; }
+
+/* ============ IMPORT ============ */
+.menu-sub { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.import-lead { font-size: 16px; margin: 0 0 6px; }
+.import-note { font-size: 13px; color: var(--ink-2); margin: 10px 0 4px; }
+.import-list { margin: 4px 0 0; padding-left: 20px; font-size: 13px; color: var(--ink-2); }
+.import-error { padding: 12px; border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-line); }
 
 /* ============ CHART CONTROLS ============ */
 .chart-card .section-h { flex-wrap: wrap; }
@@ -1277,7 +1291,10 @@ body.vr-open { overflow: hidden; }
               <!-- Quick labels and play size, shown when Symptom or Activity is chosen -->
               <div class="label-panel" id="labelPanel"></div>
               <div class="form-grid type-fields">
-                <label class="field"><span class="field-head">Weight <button type="button" class="star" id="starWeight" title="Weigh in every day" aria-label="Weigh in every day" aria-pressed="false">☆</button></span><input type="number" step="0.01" id="rWeight" inputmode="decimal" placeholder="lb / kg"></label>
+                <label class="field"><span class="field-head">Weight <button type="button" class="star" id="starWeight" title="Weigh in every day" aria-label="Weigh in every day" aria-pressed="false">☆</button>
+                  <select id="weightUnit" class="unit-select" aria-label="Weight unit"><option value="lboz">lb &amp; oz</option><option value="lb">lb</option><option value="kg">kg</option></select></span>
+                  <span class="weight-inputs"><input type="number" step="any" min="0" id="rWeight" inputmode="decimal" placeholder="lb">
+                  <input type="number" step="any" min="0" id="rWeightOz" inputmode="decimal" placeholder="oz" aria-label="Ounces"></span></label>
                 <label class="field">Mood<input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
                 <label class="field">Food<input id="rFood" list="foodOptions" placeholder="meal / brand"></label>
                 <label class="field">Activity<input type="number" id="rActivity" inputmode="numeric" placeholder="min"></label>
@@ -1367,6 +1384,7 @@ body.vr-open { overflow: hidden; }
 
 <!-- Hidden file input for JSON import -->
 <input type="file" id="fileInput" accept="application/json,.json" class="sr-only" aria-hidden="true">
+<input type="file" id="csvInput" accept=".csv,text/csv" class="sr-only" aria-hidden="true">
 
 <!-- Vet summary: shown over the app, and the only thing printed -->
 <div class="vet-report" id="vetReport" hidden></div>
@@ -1451,6 +1469,8 @@ body.vr-open { overflow: hidden; }
   $('clearForm').addEventListener('click', clearRecordForm);
   $('addMedRow').addEventListener('click', function () { addMedRow('', '').querySelector('.med-name').focus(); });
   $('starWeight').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'weight' }); });
+  $('weightUnit').addEventListener('change', function () { setWeightUnit($('weightUnit').value); });
+  applyWeightUnitToForm();
   $('rTags').querySelectorAll('.tag-chip').forEach(function (b) {
     b.addEventListener('click', function () {
       b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true');
@@ -1467,7 +1487,8 @@ body.vr-open { overflow: hidden; }
   $('exportCsvBtn').addEventListener('click', exportCsv);
   $('exportJsonBtn').addEventListener('click', exportJson);
   $('themeBtn').addEventListener('click', openThemePicker);
-  $('importBtn').addEventListener('click', triggerImport);
+  $('importBtn').addEventListener('click', openImportChooser);
+  $('csvInput').addEventListener('change', handleCsvImport);
   $('fileInput').addEventListener('change', handleImport);
   $('modalClose').addEventListener('click', closeModal);
   modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
@@ -1596,7 +1617,7 @@ body.vr-open { overflow: hidden; }
 
     var weights = rs.filter(function (r) { return has(r.weight); }).sort(byDate);
     var moods = rs.filter(function (r) { return has(r.mood); }).map(function (r) { return Number(r.mood); });
-    $('sWeight').textContent = weights.length ? weights[weights.length - 1].weight : '—';
+    $('sWeight').textContent = weights.length ? fmtWeight(weights[weights.length - 1].weight) : '—';
     $('sMood').textContent = moods.length ? avg(moods).toFixed(1) : '—';
     $('sMeds').textContent = rs.reduce(function (n, r) { return n + r.meds.length; }, 0);
     $('sRecords').textContent = rs.length;
@@ -1644,7 +1665,7 @@ body.vr-open { overflow: hidden; }
     $('records').innerHTML = rs.map(function (r) {
       var bits = [];
       // Every value is escaped: vault data can be written by anyone with the code.
-      if (has(r.weight)) bits.push('Wt ' + esc(r.weight));
+      if (has(r.weight)) bits.push('Wt ' + esc(fmtWeight(r.weight)));
       if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
       if (has(r.activity)) bits.push(esc(r.activity) + ' min');
       if (has(r.cost) && Number(r.cost) > 0) bits.push('$' + Number(r.cost).toFixed(2));
@@ -1807,7 +1828,7 @@ body.vr-open { overflow: hidden; }
         var stop = '<button class="star" data-stop="' + i + '" type="button" title="Stop repeating daily" aria-label="Stop repeating daily" aria-pressed="true">★</button>';
         if (log) {
           var at = (row.med && row.med.at) || log.loggedAt;
-          var sub = (isWeight ? esc(log.weight) + ' · ' : '') + (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
+          var sub = (isWeight ? esc(fmtWeight(log.weight)) + ' · ' : '') + (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
           // Older single-medicine logs kept the dose in the log's own note.
           var desc = isWeight ? '' : (row.med.note || (!log.routine && log.meds.length === 1 ? log.note : ''));
           return '<div class="routine-row done">' +
@@ -1827,9 +1848,15 @@ body.vr-open { overflow: hidden; }
           '<div class="routine-main"><b>' + title + '</b><span>Not yet today</span></div>' +
           '<div class="routine-actions">' +
             (isWeight
-              ? '<input type="number" step="0.01" inputmode="decimal" placeholder="Weight" aria-label="Weight"' +
+              ? '<input type="number" step="any" min="0" inputmode="decimal" placeholder="' + (weightUnit() === 'kg' ? 'kg' : 'lb') + '"' +
+                ' aria-label="' + (weightUnit() === 'kg' ? 'Weight in kilograms' : 'Weight in pounds') + '"' +
                 ' data-row="' + i + '" data-field="weight" data-draft="' + esc(weightKey) + '"' +
-                ' value="' + esc(draftOr(it, 'weight', '')) + '">'
+                ' value="' + esc(draftOr(it, 'weight', '')) + '">' +
+                (weightUnit() === 'lboz'
+                  ? '<input class="wt-oz" type="number" step="any" min="0" inputmode="decimal" placeholder="oz" aria-label="Ounces"' +
+                    ' data-row="' + i + '" data-field="weightOz" data-draft="' + esc(weightKey + 'Oz') + '"' +
+                    ' value="' + esc(draftOr(it, 'weightOz', '')) + '">'
+                  : '')
               : '') +
             '<button class="sage tiny" data-log="' + i + '" type="button">Log</button>' + stop +
           '</div>' +
@@ -1853,7 +1880,11 @@ body.vr-open { overflow: hidden; }
       var el = list.querySelector('[data-row="' + i + '"][data-field="' + name + '"]');
       return el ? el.value : '';
     }
-    function entry(i) { return { item: rows[i].item, note: field(i, 'note'), weight: field(i, 'weight') }; }
+    function entry(i) {
+      var lbEl = list.querySelector('[data-row="' + i + '"][data-field="weight"]');
+      var ozEl = list.querySelector('[data-row="' + i + '"][data-field="weightOz"]');
+      return { item: rows[i].item, note: field(i, 'note'), weight: lbEl ? readWeight(lbEl, ozEl) : '' };
+    }
 
     list.querySelectorAll('[data-draft]').forEach(function (input) {
       input.addEventListener('input', function () { routineDrafts[input.getAttribute('data-draft')] = input.value; });
@@ -1948,6 +1979,7 @@ body.vr-open { overflow: hidden; }
     entries.forEach(function (en) {
       delete routineDrafts[petId + ':' + en.item.id + ':note'];
       delete routineDrafts[petId + ':' + en.item.id + ':weight'];
+      delete routineDrafts[petId + ':' + en.item.id + ':weightOz'];
     });
     save();
     render();
@@ -2082,6 +2114,72 @@ body.vr-open { overflow: hidden; }
       set(row.querySelector('.star'), !!(p && routineItemFor(p, 'medication', row.querySelector('.med-name').value)));
     });
   }
+  // ===== WEIGHT UNITS =====
+  // Weights are always stored as decimal pounds. Each device chooses how to
+  // enter and show them: pounds and ounces (default), decimal pounds, or kg.
+  function weightUnit() {
+    try { var u = localStorage.getItem('petHealth.weightDisplay'); if (u === 'lb' || u === 'kg') return u; } catch (e) {}
+    return 'lboz';
+  }
+  function trimNum(n, digits) { return Number(n).toFixed(digits).replace(/\.?0+$/, ''); }
+  // One weight, e.g. "12 lb 9 oz", "12.56 lb" or "5.7 kg"
+  function fmtWeight(lb, unit) {
+    unit = unit || weightUnit();
+    var v = Number(lb);
+    if (!isFinite(v)) return String(lb);
+    if (unit === 'kg') return trimNum(v * 0.45359237, 2) + ' kg';
+    if (unit === 'lb') return trimNum(v, 2) + ' lb';
+    var totalOz = Math.round(Math.abs(v) * 16 * 10) / 10;
+    var whole = Math.floor(totalOz / 16), oz = Math.round((totalOz - whole * 16) * 10) / 10;
+    var text = whole ? whole + ' lb' + (oz ? ' ' + trimNum(oz, 1) + ' oz' : '') : trimNum(oz, 1) + ' oz';
+    return (v < 0 ? '−' : '') + text;
+  }
+  // A change in weight, e.g. "+3 oz", "−1 lb 2 oz", "+0.21 lb"
+  function fmtWeightChange(diffLb, unit) {
+    var sign = diffLb > 0 ? '+' : diffLb < 0 ? '−' : '±';
+    return sign + fmtWeight(Math.abs(diffLb), unit);
+  }
+  function weightUnitName(unit) { return { lboz: 'lb and oz', lb: 'lb', kg: 'kg' }[unit || weightUnit()]; }
+  // Read a weight from a main field (lb or kg) and optional ounces field.
+  // Returns decimal pounds, '' if both are empty, or NaN if it doesn't make sense.
+  function readWeight(mainEl, ozEl) {
+    var unit = weightUnit();
+    var a = mainEl ? String(mainEl.value).trim() : '';
+    var b = ozEl && unit === 'lboz' ? String(ozEl.value).trim() : '';
+    if (a === '' && b === '') return '';
+    var main = a === '' ? 0 : Number(a), oz = b === '' ? 0 : Number(b);
+    if (!isFinite(main) || !isFinite(oz) || main < 0 || oz < 0) return NaN;
+    var lb = unit === 'kg' ? main / 0.45359237 : main + oz / 16;
+    return lb > 0 ? Math.round(lb * 10000) / 10000 : NaN;
+  }
+  // Fill a main field (and ounces field) from decimal pounds
+  function writeWeight(mainEl, ozEl, lb) {
+    var unit = weightUnit();
+    if (lb === '' || lb == null || !isFinite(Number(lb))) { mainEl.value = ''; if (ozEl) ozEl.value = ''; return; }
+    var v = Number(lb);
+    if (unit === 'kg') { mainEl.value = trimNum(v * 0.45359237, 2); if (ozEl) ozEl.value = ''; return; }
+    if (unit === 'lb') { mainEl.value = trimNum(v, 4); if (ozEl) ozEl.value = ''; return; }
+    var totalOz = Math.round(v * 16 * 10) / 10;
+    var whole = Math.floor(totalOz / 16);
+    mainEl.value = String(whole);
+    if (ozEl) ozEl.value = trimNum(totalOz - whole * 16, 1);
+  }
+  function setWeightUnit(unit) {
+    // Keep what's typed in the form, re-shown in the new unit
+    var typed = readWeight($('rWeight'), $('rWeightOz'));
+    try { localStorage.setItem('petHealth.weightDisplay', unit); } catch (e) {}
+    applyWeightUnitToForm();
+    if (typed !== '' && !isNaN(typed)) writeWeight($('rWeight'), $('rWeightOz'), typed);
+    render();
+  }
+  function applyWeightUnitToForm() {
+    var unit = weightUnit();
+    $('weightUnit').value = unit;
+    $('rWeightOz').hidden = unit !== 'lboz';
+    $('rWeight').placeholder = unit === 'kg' ? 'kg' : 'lb';
+    $('rWeight').setAttribute('aria-label', unit === 'kg' ? 'Weight in kilograms' : 'Weight in pounds');
+  }
+
   // ===== QUICK LABELS & PLAY SIZE =====
   // Each pet has its own symptom labels and play labels (pet.symptomLabels,
   // pet.playLabels), so they sync like other pet details. A log stores the
@@ -2217,10 +2315,10 @@ body.vr-open { overflow: hidden; }
       var diff = avg[last] - avg[from];
       var pct = avg[from] ? diff / avg[from] * 100 : 0;
       var sign = diff > 0 ? '+' : diff < 0 ? '−' : '±';
-      return '<span class="badge" title="Based on 7-day averages">' + esc(text) + ' <b>' + sign + Math.abs(diff).toFixed(2) +
+      return '<span class="badge" title="Based on 7-day averages">' + esc(text) + ' <b>' + esc(fmtWeightChange(diff)) +
         ' (' + sign + Math.abs(pct).toFixed(1) + '%)</b></span>';
     }
-    var parts = ['<span class="badge">Latest <b>' + esc(values[last]) + '</b></span>'];
+    var parts = ['<span class="badge">Latest <b>' + esc(fmtWeight(values[last])) + '</b></span>'];
     var ref = new Date(days[last] + 'T00:00:00');
     ref.setDate(ref.getDate() - 30);
     var refDay = localDate(ref);
@@ -2494,7 +2592,12 @@ body.vr-open { overflow: hidden; }
       var wAvg = keep.map(function (i) { return allAvg[i]; });
       labels = wDays.map(formatDate);
       data = wValues;
-      var xy = function (vals) { return wDays.map(function (d, i) { return { x: dayNum(d), y: vals[i] }; }); };
+      var wUnitNow = weightUnit();
+      var xy = function (vals) {
+        return wDays.map(function (d, i) {
+          return { x: dayNum(d), y: wUnitNow === 'kg' ? Math.round(vals[i] * 0.45359237 * 1000) / 1000 : vals[i] };
+        });
+      };
       if (wDays.length) {
         var showAvg = wDays.length >= 5;
         var dense = wDays.length > 40;
@@ -2623,7 +2726,7 @@ body.vr-open { overflow: hidden; }
         y: {
           beginAtZero: mode !== 'weight',
           stacked: isStackedWeekly,
-          ticks: { precision: 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined },
+          ticks: Object.assign({ precision: 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined }, weightTicks()),
           grid: { color: C.grid },
           title: isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : mode === 'symptom-weekly' ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
         },
@@ -2634,6 +2737,22 @@ body.vr-open { overflow: hidden; }
         }
       }
     };
+
+    // Weight axis labels in the device's unit. For pounds and ounces the marks
+    // land on whole ounces or pounds (4 oz, 8 oz, 1 lb...) so labels are exact.
+    function weightTicks() {
+      if (mode !== 'weight') return {};
+      var u = weightUnit();
+      var t = { precision: undefined, callback: function (v) { return u === 'kg' ? trimNum(v, 2) + ' kg' : fmtWeight(v, u); } };
+      if (u === 'lboz') {
+        var ys = [];
+        chartConfig.data.datasets.forEach(function (ds) { ds.data.forEach(function (pt) { ys.push(pt.y); }); });
+        var span = ys.length ? Math.max.apply(null, ys) - Math.min.apply(null, ys) : 1;
+        var steps = [1 / 16, 2 / 16, 4 / 16, 8 / 16, 1, 2, 5, 10, 25];
+        t.stepSize = steps.find(function (st) { return span / st <= 6; }) || 50;
+      }
+      return t;
+    }
 
     // Date axis for the time charts: spans the whole range, labelled with dates
     // (and years when the chart covers more than about a year).
@@ -2652,6 +2771,13 @@ body.vr-open { overflow: hidden; }
           callback: function (v) { return dayText(v, withYear); }
         },
         grid: { display: false }
+      };
+    }
+
+    if (mode === 'weight' && chartConfig.options.plugins.tooltip.callbacks) {
+      chartConfig.options.plugins.tooltip.callbacks.label = function (item) {
+        var y = item.parsed.y;
+        return item.dataset.label + ': ' + fmtWeight(weightUnit() === 'kg' ? y / 0.45359237 : y);
       };
     }
 
@@ -2796,7 +2922,8 @@ body.vr-open { overflow: hidden; }
     var record = blankRecord(existing ? existing.petId : activePetId, $('rDate').value || today());
     record.id = editingLogId || record.id;
     record.mood = num($('rMood').value);
-    record.weight = num($('rWeight').value);
+    record.weight = readWeight($('rWeight'), $('rWeightOz'));
+    if (typeof record.weight === 'number' && isNaN(record.weight)) return toast('Check the weight');
     record.activity = num($('rActivity').value);
     record.cost = num($('rCost').value);
     record.food = $('rFood').value.trim();
@@ -2839,7 +2966,7 @@ body.vr-open { overflow: hidden; }
     $('rId').value = id;
     $('rDate').value = r.date;
     $('rMood').value = r.mood;
-    $('rWeight').value = r.weight;
+    writeWeight($('rWeight'), $('rWeightOz'), r.weight);
     $('rActivity').value = r.activity;
     $('rCost').value = r.cost;
     $('rFood').value = r.food || '';
@@ -2874,7 +3001,7 @@ body.vr-open { overflow: hidden; }
   function clearRecordForm() {
     editingLogId = null;
     $('rId').value = '';
-    ['rMood', 'rWeight', 'rActivity', 'rCost', 'rFood', 'rNote'].forEach(function (id) { $(id).value = ''; });
+    ['rMood', 'rWeight', 'rWeightOz', 'rActivity', 'rCost', 'rFood', 'rNote'].forEach(function (id) { $(id).value = ''; });
     $('rDate').value = today();
     setTags([]);
     formLabels = { symptom: [], play: [] };
@@ -2911,6 +3038,284 @@ body.vr-open { overflow: hidden; }
 
   function triggerImport() { $('fileInput').click(); }
 
+  // ===== BULK IMPORT FROM A SPREADSHEET (CSV) =====
+  // Adds logs from a CSV (e.g. edited in Excel or Google Sheets). It never
+  // replaces anything: rows already in the app are skipped, problems are
+  // listed by row number, and nothing is saved until the preview is confirmed.
+  function openImportChooser() {
+    modalTitle.textContent = 'Import';
+    modalBody.innerHTML =
+      '<div class="menu-list">' +
+        '<button class="menu-item" id="imCsv" type="button"><span class="menu-icon">📄</span>' +
+          '<span>Add logs from a spreadsheet (CSV)<small class="menu-sub">Adds to what\'s here. You\'ll see a preview first.</small></span></button>' +
+        '<button class="menu-item" id="imTemplate" type="button"><span class="menu-icon">⬇</span>' +
+          '<span>Download the spreadsheet template<small class="menu-sub">Columns to fill in, with example rows.</small></span></button>' +
+        '<button class="menu-item" id="imJson" type="button"><span class="menu-icon">♻</span>' +
+          '<span>Restore a backup (JSON)<small class="menu-sub">Replaces all pets and logs with the backup.</small></span></button>' +
+      '</div>';
+    openModal();
+    $('imCsv').addEventListener('click', function () { closeModal(); $('csvInput').click(); });
+    $('imTemplate').addEventListener('click', function () { downloadCsvTemplate(); });
+    $('imJson').addEventListener('click', function () { closeModal(); triggerImport(); });
+  }
+
+  function downloadCsvTemplate() {
+    var p = activePet();
+    var name = p ? p.name : 'Luna';
+    var rows = [
+      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'play size', 'play', 'food', 'mood', 'activity', 'cost', 'note'],
+      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.'],
+      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', ''],
+      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', 'Restless all evening'],
+      ['Example', '9/22/2026', '', '', '', 'activity', '', 'big', 'Bed game; String', '', '', '', '', 'Big play at 10 pm'],
+      ['Example', '9/23/2026', '', '', '', 'vomit', '', '', '', 'New kibble', '', '', '', 'Hairball'],
+      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', '', '', '', '85', 'Annual checkup (' + name + ')']
+    ];
+    download('pet-health-import-template.csv', rows.map(csvLine).join('\n'), 'text/csv');
+    toast('Template downloaded');
+  }
+  function csvLine(row) {
+    return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
+  }
+
+  // Split CSV text into rows of fields (quotes, commas inside quotes, line
+  // breaks inside quotes, Excel's byte-order mark, and ; as a separator).
+  function parseCsv(text) {
+    text = String(text).replace(/^\uFEFF/, '');
+    var first = text.split(/\r?\n/)[0] || '';
+    var delim = first.indexOf(',') < 0 && first.indexOf(';') >= 0 ? ';' : ',';
+    var rows = [], row = [], field = '', quoted = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (quoted) {
+        if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else quoted = false; }
+        else field += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === delim) { row.push(field); field = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(field); rows.push(row); row = []; field = '';
+      } else field += ch;
+    }
+    if (field !== '' || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  // Dates like 2026-09-24, 9/24/2026 (US order), 9/24/26 or Sep 24, 2026
+  function parseCsvDate(text) {
+    var s = String(text || '').trim().replace(/[ T]\d{1,2}:\d{2}(:\d{2})?( ?[AP]M)?$/i, '');
+    var m, y, mo, d;
+    if ((m = /^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/.exec(s))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if ((m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{2})$/.exec(s))) { mo = +m[1]; d = +m[2]; y = +m[3]; if (y < 100) y += 2000; }
+    else if (/[a-z]{3}/i.test(s) && !isNaN(Date.parse(s))) { var dt = new Date(Date.parse(s)); y = dt.getFullYear(); mo = dt.getMonth() + 1; d = dt.getDate(); }
+    else return '';
+    var check = new Date(y, mo - 1, d);
+    if (y < 1990 || y > 2100 || check.getFullYear() !== y || check.getMonth() !== mo - 1 || check.getDate() !== d) return '';
+    return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+
+  // A log's content, for spotting rows that are already in the app
+  function logSignature(r) {
+    function t(x) { return String(x == null ? '' : x).trim().toLowerCase().replace(/\s+/g, ' '); }
+    function n(x) { return has(x) && isFinite(Number(x)) ? Math.round(Number(x) * 1000) / 1000 : ''; }
+    return JSON.stringify([r.petId, r.date, n(r.weight), n(r.mood), n(r.activity), n(r.cost), t(r.food), t(r.note),
+      (r.meds || []).map(function (m) { return t(m.name) + '|' + t(m.note); }).sort(),
+      (r.tags || []).slice().sort(), (r.symptoms || []).map(t).sort(), t(r.playSize), (r.playKinds || []).map(t).sort()]);
+  }
+
+  // Work out what a CSV would add, without changing anything
+  function planCsvImport(text) {
+    var COLUMNS = {
+      pet: ['pet', 'pet name', 'name'], species: ['species'], date: ['date', 'day'],
+      lb: ['lb', 'lbs', 'pounds', 'weight lb', 'weight (lb)'], oz: ['oz', 'ounces', 'weight oz', 'weight (oz)'],
+      weight: ['weight'], kg: ['kg', 'weight kg', 'weight (kg)'],
+      meds: ['medications', 'medication', 'medicines', 'medicine', 'meds'],
+      tags: ['tags', 'types', 'type', 'events'], symptoms: ['symptoms', 'symptom labels'],
+      playSize: ['play size', 'size'], play: ['play', 'play labels'],
+      food: ['food', 'meal'], mood: ['mood'], activity: ['activity', 'activity minutes', 'minutes'],
+      cost: ['cost', 'price'], note: ['note', 'notes', 'description', 'comment']
+    };
+    var TAG_WORDS = { symptom: 'symptom', symptoms: 'symptom', vomit: 'vomit', vomiting: 'vomit', diarrhea: 'diarrhea', diarrhoea: 'diarrhea',
+      activity: 'activity', play: 'activity', vet: 'vet', 'vet visit': 'vet' };
+    var DERIVED = ['weight', 'medication', 'medications', 'medicine', 'meal', 'food', 'note'];
+    var plan = { adds: [], newPets: [], perPet: {}, duplicates: 0, examples: 0, problems: [], warnings: [], error: '' };
+
+    var rows = parseCsv(text).filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); });
+    if (!rows.length) { plan.error = 'The file is empty.'; return plan; }
+    var header = rows[0].map(function (h) { return String(h).trim().toLowerCase().replace(/\s+/g, ' '); });
+    var col = {};
+    Object.keys(COLUMNS).forEach(function (key) {
+      var i = header.findIndex(function (h) { return COLUMNS[key].indexOf(h) >= 0; });
+      if (i >= 0) col[key] = i;
+    });
+    if (col.pet === undefined || col.date === undefined) {
+      plan.error = 'The first row must be column names, including "pet" and "date". Download the template to see the layout.';
+      return plan;
+    }
+
+    var petsByName = {};
+    state.pets.forEach(function (p) { petsByName[normName(p.name)] = p; });
+    var seen = {};
+    state.records.forEach(function (r) { seen[logSignature(r)] = true; });
+    var unknownTags = {};
+
+    rows.slice(1).forEach(function (row, idx) {
+      var line = idx + 2; // row number as shown in a spreadsheet
+      function get(key) { return col[key] === undefined ? '' : String(row[col[key]] == null ? '' : row[col[key]]).trim(); }
+      function list(key) { return get(key).split(';').map(function (x) { return x.trim().replace(/\s+/g, ' '); }).filter(Boolean); }
+      function problem(msg) { plan.problems.push({ row: line, msg: msg }); }
+
+      var petName = get('pet').replace(/\s+/g, ' ');
+      if (!petName) return problem('No pet name');
+      if (normName(petName) === 'example') { plan.examples++; return; }
+      var date = parseCsvDate(get('date'));
+      if (!date) return problem(get('date') ? 'Date "' + get('date') + '" isn\'t recognized (use 2026-09-24 or 9/24/2026)' : 'No date');
+
+      // Weight: lb + oz, or decimal "weight" in pounds, or kg
+      var weight = '';
+      var lbText = get('lb'), ozText = get('oz'), wText = get('weight'), kgText = get('kg');
+      if (lbText !== '' || ozText !== '') {
+        var lb = lbText === '' ? 0 : Number(lbText), oz = ozText === '' ? 0 : Number(ozText);
+        if (!isFinite(lb) || !isFinite(oz) || lb < 0 || oz < 0 || lb + oz <= 0) return problem('Weight "' + lbText + ' lb ' + ozText + ' oz" doesn\'t make sense');
+        weight = Math.round((lb + oz / 16) * 10000) / 10000;
+      } else if (wText !== '') {
+        var w = Number(wText);
+        if (!isFinite(w) || w <= 0) return problem('Weight "' + wText + '" doesn\'t make sense');
+        weight = w;
+      } else if (kgText !== '') {
+        var kg = Number(kgText);
+        if (!isFinite(kg) || kg <= 0) return problem('Weight "' + kgText + ' kg" doesn\'t make sense');
+        weight = Math.round(kg / 0.45359237 * 10000) / 10000;
+      }
+      function number(key, lo, hi, what) {
+        var t = get(key).replace(/[$,]/g, '');
+        if (t === '') return '';
+        var v = Number(t);
+        if (!isFinite(v) || v < lo || (hi !== undefined && v > hi)) throw { row: line, msg: what + ' "' + get(key) + '" doesn\'t make sense' };
+        return v;
+      }
+      var mood, activity, cost;
+      try { mood = number('mood', 1, 5, 'Mood (1–5)'); activity = number('activity', 0, undefined, 'Activity minutes'); cost = number('cost', 0, undefined, 'Cost'); }
+      catch (e) { return plan.problems.push(e); }
+
+      var size = get('playSize').toLowerCase();
+      if (size && !PLAY_SIZES[size]) return problem('Play size "' + get('playSize') + '" should be tiny, short, decent or big');
+
+      var tags = [];
+      list('tags').forEach(function (word) {
+        var k = word.toLowerCase();
+        if (TAG_WORDS[k]) { if (tags.indexOf(TAG_WORDS[k]) < 0) tags.push(TAG_WORDS[k]); }
+        else if (DERIVED.indexOf(k) < 0) unknownTags[word] = (unknownTags[word] || []).concat([line]);
+      });
+      var meds = list('meds').map(function (m) {
+        var mm = /^(.*?)\s*\((.*)\)\s*$/.exec(m);
+        return mm ? { name: mm[1].trim(), note: mm[2].trim() } : { name: m, note: '' };
+      }).filter(function (m) { return m.name; });
+      var symptoms = list('symptoms'), playKinds = list('play');
+      // Labels imply their tag, so they're counted as symptoms / play
+      if (symptoms.length && tags.indexOf('symptom') < 0) tags.push('symptom');
+      if ((size || playKinds.length) && tags.indexOf('activity') < 0) tags.push('activity');
+
+      var key = normName(petName);
+      var pet = petsByName[key];
+      if (!pet) {
+        var species = get('species');
+        pet = { id: uid(), name: petName, icon: /dog/i.test(species) ? '🐶' : /cat/i.test(species) ? '🐱' : '🐾', species: species || 'Other', breed: '', birthday: '' };
+        petsByName[key] = pet;
+        plan.newPets.push(pet);
+      }
+      var rec = blankRecord(pet.id, date);
+      rec.weight = weight;
+      rec.meds = meds;
+      rec.tags = tags;
+      rec.symptoms = symptoms;
+      rec.playSize = size;
+      rec.playKinds = playKinds;
+      rec.food = get('food');
+      rec.mood = mood;
+      rec.activity = activity;
+      rec.cost = cost;
+      rec.note = get('note');
+      if (isBlankRecord(rec)) return problem('Nothing to log on this row');
+      var sig = logSignature(rec);
+      if (seen[sig]) { plan.duplicates++; return; }
+      seen[sig] = true;
+      plan.adds.push(rec);
+      plan.perPet[pet.name] = (plan.perPet[pet.name] || 0) + 1;
+    });
+
+    Object.keys(unknownTags).forEach(function (w) {
+      plan.warnings.push('Tag "' + w + '" isn\'t one the app uses, so it was left off (row ' + unknownTags[w].slice(0, 5).join(', ') + (unknownTags[w].length > 5 ? '…' : '') + ')');
+    });
+    // Stay within what the cloud vault can hold
+    var total = state.records.length + plan.adds.length;
+    if (total > 5000) plan.error = 'This would bring the vault to ' + total.toLocaleString() + ' logs; the limit is 5,000.';
+    else if (JSON.stringify({ pets: state.pets.concat(plan.newPets), records: state.records.concat(plan.adds) }).length > 950000) {
+      plan.error = 'This would make the vault too large to sync (about 1 MB is the limit). Try importing fewer rows.';
+    }
+    // New pets only count if they have logs to add
+    plan.newPets = plan.newPets.filter(function (p) { return plan.adds.some(function (r) { return r.petId === p.id; }); });
+    return plan;
+  }
+
+  function handleCsvImport(e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      $('csvInput').value = '';
+      showImportPreview(planCsvImport(reader.result));
+    };
+    reader.onerror = function () { $('csvInput').value = ''; toast('Could not read file'); };
+    reader.readAsText(f);
+  }
+
+  function showImportPreview(plan) {
+    modalTitle.textContent = 'Import preview';
+    var h = '';
+    if (plan.error) {
+      h += '<p class="import-error">' + esc(plan.error) + '</p>';
+    } else if (plan.adds.length) {
+      h += '<p class="import-lead"><b>' + plan.adds.length + '</b> new ' + (plan.adds.length === 1 ? 'log' : 'logs') + ' to add</p>' +
+        '<ul class="import-list">' + Object.keys(plan.perPet).map(function (n) {
+          return '<li>' + esc(n) + ': ' + plan.perPet[n] + '</li>';
+        }).join('') + '</ul>';
+      if (plan.newPets.length) {
+        h += '<p class="import-note">New ' + (plan.newPets.length === 1 ? 'pet' : 'pets') + ' will be created: <b>' +
+          plan.newPets.map(function (p) { return esc(p.name); }).join(', ') + '</b>. If that\'s a typo, cancel and fix the name.</p>';
+      }
+    } else {
+      h += '<p class="import-lead">Nothing new to add.</p>';
+    }
+    if (plan.duplicates) h += '<p class="import-note">' + plan.duplicates + ' ' + (plan.duplicates === 1 ? 'row is' : 'rows are') + ' already in the app and will be skipped.</p>';
+    if (plan.examples) h += '<p class="import-note">' + plan.examples + ' example ' + (plan.examples === 1 ? 'row' : 'rows') + ' (pet "Example") skipped.</p>';
+    if (plan.problems.length) {
+      h += '<p class="import-note"><b>' + plan.problems.length + ' ' + (plan.problems.length === 1 ? 'row has a problem' : 'rows have problems') + '</b> and will be skipped:</p>' +
+        '<ul class="import-list">' + plan.problems.slice(0, 10).map(function (pr) { return '<li>Row ' + pr.row + ': ' + esc(pr.msg) + '</li>'; }).join('') +
+        (plan.problems.length > 10 ? '<li>…and ' + (plan.problems.length - 10) + ' more</li>' : '') + '</ul>';
+    }
+    plan.warnings.forEach(function (w) { h += '<p class="import-note">' + esc(w) + '</p>'; });
+    var canAdd = !plan.error && plan.adds.length;
+    h += '<div class="form-actions" style="margin-top:14px">' +
+      (canAdd ? '<button class="sage" id="impAdd" type="button">Add ' + plan.adds.length + ' ' + (plan.adds.length === 1 ? 'log' : 'logs') + '</button>' : '') +
+      '<button class="ghost" id="impCancel" type="button">' + (canAdd ? 'Cancel' : 'Close') + '</button></div>';
+    modalBody.innerHTML = h;
+    openModal();
+    $('impCancel').addEventListener('click', closeModal);
+    if (canAdd) $('impAdd').addEventListener('click', function () { applyImportPlan(plan); });
+  }
+
+  function applyImportPlan(plan) {
+    state.pets = state.pets.concat(plan.newPets);
+    state.records = state.records.concat(plan.adds);
+    var firstPet = plan.adds[0] && plan.adds[0].petId;
+    if (firstPet) activePetId = firstPet;
+    save();
+    closeModal();
+    render();
+    toast('Added ' + plan.adds.length + ' ' + (plan.adds.length === 1 ? 'log' : 'logs'));
+  }
+
   function handleImport(e) {
     var f = e.target.files && e.target.files[0];
     if (!f) return;
@@ -2921,7 +3326,7 @@ body.vr-open { overflow: hidden; }
         if (!data || !Array.isArray(data.pets) || !Array.isArray(data.records)) {
           throw new Error('Invalid format');
         }
-        if (!confirm('Import will replace your current data. Continue?')) {
+        if (!confirm('Restoring replaces ALL pets and logs on this device' + (syncCode ? ', and in your synced vault on every device' : '') + ', with the backup.\n\nTo add logs instead, use "Add logs from a spreadsheet". Continue?')) {
           $('fileInput').value = '';
           return;
         }
@@ -3125,16 +3530,14 @@ body.vr-open { overflow: hidden; }
 
   function renderVetReport(sum, unit, fullLog) {
     var p = sum.pet;
-    var u = unit === 'kg' ? 'kg' : 'lb';
-    function num(v) { return esc(Number(v).toFixed(2).replace(/\.?0+$/, '')); }
-    function wt(v) { return num(v) + ' ' + u; }
+    function wt(v) { return esc(fmtWeight(v, unit)); }
     function signed(v, digits) { return (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v).toFixed(digits); }
     var h = '';
 
     // Pet and period
     h += '<header class="vr-head"><h1>Health summary: ' + esc(p.name) + '</h1>' +
       '<p>' + esc((p.species || 'Pet') + (p.breed ? ' · ' + p.breed : '') + age(p.birthday)) + '</p>' +
-      '<p class="vr-muted">' + esc(formatDate(sum.from)) + ' – ' + esc(formatDate(sum.to)) + ' (' + sum.days + ' days) · Weights in ' + u + '</p></header>';
+      '<p class="vr-muted">' + esc(formatDate(sum.from)) + ' – ' + esc(formatDate(sum.to)) + ' (' + sum.days + ' days) · Weights in ' + esc(weightUnitName(unit)) + '</p></header>';
 
     // Weight
     h += '<section><h2>Weight</h2>';
@@ -3143,10 +3546,10 @@ body.vr-open { overflow: hidden; }
       h += '<div class="vr-scroll"><table><tr><th>Start</th><th>Latest</th><th>Change</th><th>Range</th></tr><tr>' +
         '<td>' + wt(w.first.value) + '<div class="vr-muted">' + esc(formatDate(w.first.date)) + '</div></td>' +
         '<td>' + wt(w.last.value) + '<div class="vr-muted">' + esc(formatDate(w.last.date)) + '</div></td>' +
-        '<td>' + signed(w.change, 2) + ' ' + u + '<div class="vr-muted">' + signed(w.pct, 1) + '%</div></td>' +
-        '<td>' + num(w.min) + '–' + num(w.max) + ' ' + u + '<div class="vr-muted">' + w.points.length + ' weigh-ins</div></td>' +
+        '<td>' + esc(fmtWeightChange(w.change, unit)) + '<div class="vr-muted">' + signed(w.pct, 1) + '%</div></td>' +
+        '<td>' + wt(w.min) + ' – ' + wt(w.max) + '<div class="vr-muted">' + w.points.length + ' weigh-ins</div></td>' +
         '</tr></table></div>';
-      if (w.points.length > 1) h += weightSparkline(w, u);
+      if (w.points.length > 1) h += weightSparkline(w, unit);
     } else {
       h += '<p class="vr-muted">No weights logged in this period.</p>';
     }
@@ -3246,7 +3649,7 @@ body.vr-open { overflow: hidden; }
   // Small weight chart for the printout, drawn as SVG so it prints crisply.
   // Spaced by date, so gaps between weigh-ins show as gaps.
   function weightSparkline(w, u) {
-    var W = 640, H = 130, padL = 46, padR = 10, padT = 10, padB = 22;
+    var W = 640, H = 130, padL = 80, padR = 10, padT = 10, padB = 22;
     var d0 = new Date(w.points[0].date + 'T00:00:00').getTime();
     var d1 = new Date(w.points[w.points.length - 1].date + 'T00:00:00').getTime();
     var lo = w.min, hi = w.max;
@@ -3257,8 +3660,8 @@ body.vr-open { overflow: hidden; }
     return '<svg class="vr-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Weight over the period">' +
       '<line x1="' + padL + '" y1="' + y(w.max).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y(w.max).toFixed(1) + '" stroke="#ddd"/>' +
       '<line x1="' + padL + '" y1="' + y(w.min).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y(w.min).toFixed(1) + '" stroke="#ddd"/>' +
-      '<text x="' + (padL - 6) + '" y="' + (y(w.max) + 4).toFixed(1) + '" text-anchor="end">' + esc(Number(w.max).toFixed(2)) + '</text>' +
-      '<text x="' + (padL - 6) + '" y="' + (y(w.min) + 4).toFixed(1) + '" text-anchor="end">' + esc(Number(w.min).toFixed(2)) + '</text>' +
+      '<text x="' + (padL - 6) + '" y="' + (y(w.max) + 4).toFixed(1) + '" text-anchor="end">' + esc(fmtWeight(w.max, u)) + '</text>' +
+      '<text x="' + (padL - 6) + '" y="' + (y(w.min) + 4).toFixed(1) + '" text-anchor="end">' + esc(fmtWeight(w.min, u)) + '</text>' +
       '<polyline fill="none" stroke="#222" stroke-width="1.5" points="' + pts + '"/>' +
       '<text x="' + padL + '" y="' + (H - 4) + '">' + esc(shortDate(w.points[0].date)) + '</text>' +
       '<text x="' + (W - padR) + '" y="' + (H - 4) + '" text-anchor="end">' + esc(shortDate(w.points[w.points.length - 1].date)) + '</text>' +
@@ -3269,8 +3672,6 @@ body.vr-open { overflow: hidden; }
     var p = activePet();
     if (!p) return toast('Add a pet first');
     var lastVet = lastVetVisit(p);
-    var savedUnit = 'lb';
-    try { savedUnit = localStorage.getItem('petHealth.weightUnit') || 'lb'; } catch (e) {}
     modalTitle.textContent = 'Vet summary for ' + p.name;
     modalBody.innerHTML =
       '<p class="routine-intro">A one-page summary to print or save as a PDF for your vet.</p>' +
@@ -3284,15 +3685,15 @@ body.vr-open { overflow: hidden; }
         '<label class="field">From<input type="date" id="vsFrom"></label>' +
         '<label class="field">To<input type="date" id="vsTo"></label>' +
       '</div>' +
-      '<label class="field" style="margin-top:10px">Weights were recorded in<select id="vsUnit">' +
-        '<option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option>' +
+      '<label class="field" style="margin-top:10px">Show weights in<select id="vsUnit">' +
+        '<option value="lboz">Pounds and ounces</option><option value="lb">Pounds (decimal)</option><option value="kg">Kilograms</option>' +
       '</select></label>' +
       '<label class="vs-check"><input type="checkbox" id="vsFullLog"> Also include every log at the end</label>' +
       '<p class="routine-intro" style="color:var(--muted)">Only ' + esc(p.name) + '\'s logs are included, never your sync code.</p>' +
       '<div class="form-actions"><button class="sage" id="vsCreate" type="button">Create summary</button>' +
       '<button class="ghost" id="vsCancel" type="button">Cancel</button></div>';
     $('vsPeriod').value = lastVet ? 'vet' : '90';
-    $('vsUnit').value = savedUnit === 'kg' ? 'kg' : 'lb';
+    $('vsUnit').value = weightUnit(); // this device's setting; changing it here only affects this summary
     $('vsFrom').value = shiftDay(today(), -89);
     $('vsTo').value = today();
     $('vsPeriod').addEventListener('change', function () { $('vsCustom').hidden = $('vsPeriod').value !== 'custom'; });
@@ -3308,7 +3709,6 @@ body.vr-open { overflow: hidden; }
         if (from > to) return toast('The start date is after the end date');
       }
       var unit = $('vsUnit').value;
-      try { localStorage.setItem('petHealth.weightUnit', unit); } catch (e) {}
       var fullLog = $('vsFullLog').checked;
       closeModal();
       openVetReport(p, from, to, unit, fullLog);
@@ -3376,7 +3776,7 @@ body.vr-open { overflow: hidden; }
       '<div class="menu-list">' +
         '<button class="menu-item" id="miAuth" type="button"><span class="menu-icon">☁</span>' + (syncCode ? 'Cloud sync · ' + esc(syncCode) : 'Set up cloud sync') + '</button>' +
         '<button class="menu-item" id="miAddPet" type="button"><span class="menu-icon">🐾</span>Add pet</button>' +
-        '<button class="menu-item" id="miImport" type="button"><span class="menu-icon">⬆</span>Import JSON</button>' +
+        '<button class="menu-item" id="miImport" type="button"><span class="menu-icon">⬆</span>Import</button>' +
         '<button class="menu-item" id="miExportCsv" type="button"><span class="menu-icon">📊</span>Export CSV</button>' +
         '<button class="menu-item" id="miExportJson" type="button"><span class="menu-icon">💾</span>Export JSON</button>' +
         '<button class="menu-item" id="miVet" type="button"><span class="menu-icon">🩺</span>Vet summary</button>' +
@@ -3387,7 +3787,7 @@ body.vr-open { overflow: hidden; }
     $('miTheme').addEventListener('click', function () { closeModal(); setTimeout(openThemePicker, 250); });
     $('miVet').addEventListener('click', function () { closeModal(); setTimeout(openVetSummaryDialog, 250); });
     $('miAddPet').addEventListener('click', function () { closeModal(); setTimeout(openAddPetModal, 250); });
-    $('miImport').addEventListener('click', function () { closeModal(); triggerImport(); });
+    $('miImport').addEventListener('click', function () { closeModal(); setTimeout(openImportChooser, 250); });
     $('miExportCsv').addEventListener('click', function () { closeModal(); exportCsv(); });
     $('miExportJson').addEventListener('click', function () { closeModal(); exportJson(); });
   }

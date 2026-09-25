@@ -2,7 +2,7 @@
 
 Automated checks for Pet Health Tracker. They run the real `index.html` in simulated browsers connected to a fake Firebase that behaves like the real one: live updates between devices, offline mode, and your `firestore.rules`. Nothing touches your real Firebase or your users' data.
 
-Run them before every push. A full run takes about two and a half minutes.
+Run them before every push. A full run takes about three minutes.
 
 ## First-time setup
 
@@ -28,7 +28,7 @@ You'll see one line per group, desktop and mobile layouts:
 PASS Sync  24/24
 PASS Routine  18/18
 ...
-All 363 checks passed.
+All 465 checks passed.
 ```
 
 If anything fails, it lists which check and what it found instead. Don't push until it passes, or until you've confirmed the failure is expected (see below).
@@ -57,6 +57,8 @@ If anything fails, it lists which check and what it found instead. Don't push un
 | Themes | Picking, saving and loading themes; chart colors follow the theme; every theme color is defined |
 | Vet summary | Periods, weight change, doses and dose changes, missed doses, episodes, notes, units, full log, printing, no vault code |
 | Labels & play | Symptom and play labels, play size, editing, removing labels, weekly Play and Symptoms charts, vet summary counts |
+| Weight units | Pounds and ounces, decimal pounds and kilograms: entry, storage in pounds, display, chart axis, checklist weigh-in |
+| Bulk import | CSV template, preview, adding (never replacing), duplicates, problem rows, dates, quotes, new pets, Export CSV round trip, size limit |
 
 ## When a test fails
 

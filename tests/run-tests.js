@@ -264,6 +264,15 @@ function openApp(client, storage, opts = {}) {
 }
 
 // ---------- helpers ----------
+// Expected weight text, worked out independently of the app
+function lbOz(lb) {
+  const totalOz = Math.round(Math.abs(lb) * 16 * 10) / 10;
+  const whole = Math.floor(totalOz / 16);
+  const oz = Math.round((totalOz - whole * 16) * 10) / 10;
+  const ozText = String(Number(oz.toFixed(1)));
+  return whole ? whole + ' lb' + (oz ? ' ' + ozText + ' oz' : '') : ozText + ' oz';
+}
+const signedLbOz = (d) => (d > 0 ? '+' : d < 0 ? '−' : '±') + lbOz(d);
 const vault = (code) => clone(SAMPLE[code]);
 const linked = (code, data) => ({ 'petHealth.syncCode': code, [STORAGE_KEY]: JSON.stringify({ pets: data.pets, records: data.records }) });
 const unlinked = (data) => ({ [STORAGE_KEY]: JSON.stringify({ pets: data.pets, records: data.records }) });
@@ -695,7 +704,7 @@ async function charts() {
   const tip = cfg.options.plugins.tooltip.callbacks.title([{ parsed: { x: dn('2026-09-23') } }]);
   check('tooltips show the full date', /Sep/.test(tip) && /23/.test(tip) && /2026/.test(tip), tip);
   let summary = A.$('chartSummary').textContent;
-  check('all time: summary shows latest, 30-day and since-start', summary.includes(String(vals[vals.length - 1])) && /30 days/.test(summary) && /Since Feb 21, 2025/.test(summary), summary);
+  check('all time: summary shows latest (in lb and oz), 30-day and since-start', summary.includes('Latest ' + lbOz(vals[vals.length - 1])) && /30 days/.test(summary) && /Since Feb 21, 2025/.test(summary), summary);
 
   // 90 days
   cfg = setRange('90');
@@ -865,19 +874,19 @@ async function vetSummary() {
   A.click('vetSummaryBtn');
   const periods = [...A.$('vsPeriod').options].map((o) => o.value);
   check('no vet visit logged: "since last vet visit" not offered', !periods.includes('vet') && A.$('vsPeriod').value === '90', periods);
-  check('pounds by default', A.$('vsUnit').value === 'lb');
+  check('pounds and ounces by default', A.$('vsUnit').value === 'lboz');
   check('full log off by default', A.$('vsFullLog').checked === false);
   A.click('vsCancel');
 
   // Last 90 days (Jun 27 – Sep 24)
   create();
   check('summary opens', !report().hidden && /Health summary: Pepper/.test(text()));
-  check('shows the period', text().includes('(90 days)') && text().includes('Weights in lb'));
+  check('shows the period', text().includes('(90 days)') && text().includes('Weights in lb and oz'));
   const wStart = weightOn('2026-06-27'), wEnd = weightOn('2026-09-23');
-  check('weight: start and latest', text().includes(fmt(wStart) + ' lb') && text().includes(fmt(wEnd) + ' lb'), [wStart, wEnd]);
+  check('weight: start and latest', text().includes(lbOz(wStart)) && text().includes(lbOz(wEnd)), [lbOz(wStart), lbOz(wEnd)]);
   const change = wEnd - wStart;
-  check('weight: change and percentage', text().includes((change >= 0 ? '+' : '−') + Math.abs(change).toFixed(2) + ' lb') &&
-    text().includes((change >= 0 ? '+' : '−') + Math.abs(change / wStart * 100).toFixed(1) + '%'));
+  check('weight: change and percentage', text().includes(signedLbOz(change)) &&
+    text().includes((change >= 0 ? '+' : '−') + Math.abs(change / wStart * 100).toFixed(1) + '%'), signedLbOz(change));
   check('weight: chart drawn', !!report().querySelector('svg.vr-chart polyline'));
   check('daily medicine: given 89 of 89 days (today not counted yet)', medRow('Famotidine') && medRow('Famotidine').textContent.includes('89 of 89 days'), medRow('Famotidine') && medRow('Famotidine').textContent);
   check('latest dose shown', medRow('Famotidine').textContent.includes('Antacid 1/4 of a 10 mg pill twice a day'));
@@ -909,13 +918,13 @@ async function vetSummary() {
 
   // Kilograms, full log, remembered unit
   create(() => { A.$('vsUnit').value = 'kg'; A.$('vsFullLog').checked = true; });
-  check('kilograms used throughout', text().includes('Weights in kg') && text().includes(fmt(wEnd) + ' kg') && !/\d lb\b/.test(text()));
+  check('kilograms: weights converted from pounds', text().includes('Weights in kg') && text().includes(fmt(wEnd * 0.45359237) + ' kg') && !/\d lb\b/.test(text()), fmt(wEnd * 0.45359237));
   const logsInRange = SAMPLE[CODE].records.filter((r) => r.petId === 'p-pepper' && inRange('2026-06-27', '2026-09-24')(r)).length;
   check('full log lists every log in the period', report().querySelector('.vr-full') && report().querySelectorAll('.vr-full tr').length - 1 === logsInRange, [report().querySelectorAll('.vr-full tr').length - 1, logsInRange]);
   A.d.dispatchEvent(new A.w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   check('Escape closes the summary', report().hidden);
   A.click('vetSummaryBtn');
-  check('unit choice remembered on this device', A.$('vsUnit').value === 'kg');
+  check('a unit picked for one summary doesn\'t change the device\'s setting', A.$('vsUnit').value === 'lboz');
   A.click('vsCancel');
   A.close();
 
@@ -1070,6 +1079,228 @@ async function labelsAndPlay() {
 }
 
 // =====================================================================
+// WEIGHT UNITS: pounds and ounces, decimal pounds, kilograms
+// =====================================================================
+async function weightUnits() {
+  resetServer({ [CODE]: vault(CODE) });
+  let A = openApp(makeClient('phone'), linked(CODE, vault(CODE)));
+  const B = openApp(makeClient('laptop'), linked(CODE, vault(CODE)));
+  await settle();
+  const d = A.d;
+  const today = () => A.state().records.filter((r) => r.date === TODAY && r.weight !== '');
+  const logWeight = (lb, oz, note) => { A.$('rWeight').value = lb; A.$('rWeightOz').value = oz; A.addLog(note); };
+  const setUnit = (u) => { A.$('weightUnit').value = u; A.$('weightUnit').dispatchEvent(new A.w.Event('change')); };
+
+  check('pounds and ounces by default', A.$('weightUnit').value === 'lboz' && !A.$('rWeightOz').hidden);
+  logWeight('12', '9', 'w1'); await settle();
+  let r = A.state().records.find((x) => x.note === 'w1');
+  check('12 lb 9 oz is stored as 12.5625 lb', r && r.weight === 12.5625, r && r.weight);
+  check('the log card shows lb and oz', d.querySelector('.record[data-id="' + r.id + '"]').textContent.includes('Wt 12 lb 9 oz'));
+  check('the weight stat shows lb and oz', A.$('sWeight').textContent === '12 lb 9 oz', A.$('sWeight').textContent);
+  logWeight('12', '9.5', 'w2'); await settle();
+  r = A.state().records.find((x) => x.note === 'w2');
+  check('ounces can have a decimal', r.weight === 12.5938 && d.querySelector('.record[data-id="' + r.id + '"]').textContent.includes('12 lb 9.5 oz'), r.weight);
+  logWeight('', '14', 'w3'); await settle();
+  r = A.state().records.find((x) => x.note === 'w3');
+  check('ounces only (e.g. a kitten)', r.weight === 0.875 && d.querySelector('.record[data-id="' + r.id + '"]').textContent.includes('Wt 14 oz'));
+  logWeight('1', '20', 'w4'); await settle();
+  r = A.state().records.find((x) => x.note === 'w4');
+  check('16 or more ounces carry over into pounds', r.weight === 2.25 && d.querySelector('.record[data-id="' + r.id + '"]').textContent.includes('2 lb 4 oz'));
+  const before = A.state().records.length;
+  logWeight('-1', '', 'bad'); await settle();
+  check('a negative weight is refused', A.state().records.length === before && A.log.toasts.includes('Check the weight'));
+  A.click('clearForm');
+  const w1 = A.state().records.find((x) => x.note === 'w1');
+  A.editLog(w1.id);
+  check('editing fills in pounds and ounces', A.$('rWeight').value === '12' && A.$('rWeightOz').value === '9');
+  A.click('clearForm');
+
+  // Existing decimal data (e.g. litter-box averages) shows in lb and oz
+  const dec = SAMPLE[CODE].records.filter((x) => x.petId === 'p-pepper' && x.type === 'weight').pop();
+  check('existing decimal weights show in lb and oz', d.querySelector('.record[data-id="' + dec.id + '"]').textContent.includes('Wt ' + lbOz(dec.weight)), lbOz(dec.weight));
+
+  // Decimal pounds
+  A.$('rWeight').value = '12'; A.$('rWeightOz').value = '8';
+  setUnit('lb');
+  check('switching to decimal pounds hides ounces and converts what\'s typed', A.$('rWeightOz').hidden && A.$('rWeight').value === '12.5');
+  A.addLog('w5'); await settle();
+  r = A.state().records.find((x) => x.note === 'w5');
+  check('decimal pounds stored as typed', r.weight === 12.5 && d.querySelector('.record[data-id="' + r.id + '"]').textContent.includes('Wt 12.5 lb'));
+
+  // Kilograms
+  setUnit('kg');
+  A.$('rWeight').value = '5.7'; A.addLog('w6'); await settle();
+  r = A.state().records.find((x) => x.note === 'w6');
+  check('kilograms are converted to pounds for storage', r.weight === Math.round(5.7 / 0.45359237 * 10000) / 10000, r.weight);
+  check('...and shown in kilograms', d.querySelector('.record[data-id="' + r.id + '"]').textContent.includes('Wt 5.7 kg'));
+  check('the unit is saved on this device only', A.storage()['petHealth.weightDisplay'] === 'kg' && B.$('weightUnit').value === 'lboz');
+  check('the other device shows the same log in its own unit', B.d.querySelector('.record[data-id="' + r.id + '"]').textContent.includes('Wt ' + lbOz(r.weight)));
+  setUnit('lboz');
+
+  // Chart axis and tooltip
+  A.$('chartRange').value = '30';
+  let cfg = A.chart('weight');
+  const y = cfg.options.scales.y.ticks;
+  check('chart: axis marks land on whole ounces', y.stepSize > 0 && Math.abs(y.stepSize * 16 - Math.round(y.stepSize * 16)) < 1e-9, y.stepSize);
+  check('chart: axis labels in lb and oz', y.callback(12.5) === '12 lb 8 oz');
+  check('just under a pound rounds up: 12.999 lb is "13 lb", not "12 lb 16 oz"', y.callback(12.999) === '13 lb', y.callback(12.999));
+  check('chart: tooltip in lb and oz', cfg.options.plugins.tooltip.callbacks.label({ parsed: { y: 12.5625 }, dataset: { label: 'Daily weight' } }) === 'Daily weight: 12 lb 9 oz');
+  setUnit('kg');
+  cfg = A.chart('weight');
+  const pts = cfg.data.datasets[0].data;
+  check('chart in kg: values converted', pts.every((pt) => pt.y < 7), pts.slice(-2));
+  setUnit('lboz');
+
+  check('no script errors', A.log.errors.length === 0 && B.log.errors.length === 0, A.log.errors.concat(B.log.errors));
+  A.close(); B.close();
+
+  // Checklist weigh-in with pounds and ounces (fresh vault, nothing weighed today)
+  resetServer({ [CODE]: vault(CODE) });
+  A = openApp(makeClient('phone'), linked(CODE, vault(CODE)));
+  const B2 = openApp(makeClient('laptop'), linked(CODE, vault(CODE)));
+  await settle();
+  A.click('starWeight'); await settle();
+  const row = () => A.row('Weigh-in');
+  check('checklist weigh-in has pounds and ounces fields', !!row().weight && !!row().el.querySelector('[data-field="weightOz"]'));
+  A.type(row().weight, '11');
+  A.type(row().el.querySelector('[data-field="weightOz"]'), '2');
+  B2.addLog('update from laptop'); await settle();
+  check('typed ounces survive an update from another device', row().el.querySelector('[data-field="weightOz"]').value === '2');
+  row().log.click(); await settle();
+  const wi = A.state().records.filter((x) => x.routine && x.date === TODAY && x.weight !== '').pop();
+  check('checklist weigh-in stored in pounds', wi && wi.weight === 11.125, wi && wi.weight);
+  check('...and shown as 11 lb 2 oz', row().status.textContent.includes('11 lb 2 oz'));
+  check('no script errors in the checklist', A.log.errors.length === 0 && B2.log.errors.length === 0, A.log.errors.concat(B2.log.errors));
+  A.close(); B2.close();
+}
+
+// =====================================================================
+// BULK IMPORT from a spreadsheet (CSV)
+// =====================================================================
+async function bulkImport() {
+  const wait = async () => { await settle(); await new Promise((r) => setTimeout(r, 30)); await settle(); };
+  // Feed a CSV file to the app, as if chosen in the file picker
+  async function importCsv(A, text) {
+    const input = A.$('csvInput');
+    Object.defineProperty(input, 'files', { value: [new A.w.File([text], 'import.csv', { type: 'text/csv' })], configurable: true });
+    input.dispatchEvent(new A.w.Event('change'));
+    await wait();
+  }
+  // Capture files the app offers for download
+  function captureDownloads(A) {
+    A.downloads = [];
+    A.w.URL.createObjectURL = (blob) => { A.downloads.push(blob); return 'blob:test'; };
+    A.w.URL.revokeObjectURL = () => {};
+    A.w.HTMLAnchorElement.prototype.click = function () {};
+  }
+  const readBlob = (A, blob) => new Promise((res) => { const fr = new A.w.FileReader(); fr.onload = () => res(fr.result); fr.readAsText(blob); });
+  const preview = (A) => A.$('modalBody').textContent;
+
+  resetServer({ [CODE]: vault(CODE) });
+  let A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
+  await settle();
+  captureDownloads(A);
+  const startCount = A.state().records.length;
+
+  A.click('importBtn');
+  check('Import offers spreadsheet, template and backup restore', !!A.$('imCsv') && !!A.$('imTemplate') && !!A.$('imJson'));
+  A.click('imTemplate'); await wait();
+  const template = await readBlob(A, A.downloads[0]);
+  check('template has the columns', /^"pet","date","lb","oz","medications","tags","symptoms","play size","play"/.test(template), template.slice(0, 80));
+  A.click('modalClose');
+  await importCsv(A, template);
+  check('importing the untouched template adds nothing', /Nothing new to add/.test(preview(A)) && /6 example rows/.test(preview(A)) && !A.$('impAdd'), preview(A));
+  A.click('impCancel');
+
+  // The main import
+  const csv = [
+    'pet,date,lb,oz,medications,tags,symptoms,play size,play,food,mood,activity,cost,note',
+    'Pepper,9/20/2026,12,9,,,,,,,,,,Litter box average',
+    'Pepper,2026-09-21,,,"Famotidine (1/4 pill); Proviable-DC (Probiotic)",,,,,,,,,',
+    'pepper,"Sep 22, 2026",,,,,"Restless; Begging",,,,,,,"Restless, then begged ""a lot"""',
+    'Miso,9/23/26,,,,Activity,,big,Bed game,,,,,Zoomies',
+    'Biscuit,2026-09-23,24,8,,vet visit,,,,,,,$85.50,Groomer'
+  ].join('\r\n');
+  await importCsv(A, '\uFEFF' + csv); // with the byte-order mark Excel adds
+  const pv = preview(A);
+  check('preview: 5 new logs, per pet', /5 new logs to add/.test(pv) && /Pepper: 3/.test(pv) && /Miso: 1/.test(pv) && /Biscuit: 1/.test(pv), pv);
+  check('preview: new pet named', /New pet will be created: Biscuit/.test(pv));
+  check('nothing saved before confirming', A.state().records.length === startCount);
+  A.click('impAdd'); await settle();
+  const recs = A.state().records;
+  const find = (note) => recs.find((r) => r.note === note);
+  check('adds, never replaces', recs.length === startCount + 5 && server.docs[CODE].records.length === startCount + 5, [startCount, recs.length]);
+  check('12 lb 9 oz stored as 12.5625 lb, US date read', find('Litter box average') && find('Litter box average').weight === 12.5625 && find('Litter box average').date === '2026-09-20');
+  const medLog = recs.find((r) => r.date === '2026-09-21' && (r.meds || []).length === 2);
+  check('medicines and doses', medLog && medLog.meds[0].name === 'Famotidine' && medLog.meds[0].note === '1/4 pill' && medLog.meds[1].note === 'Probiotic', medLog && medLog.meds);
+  const sym = find('Restless, then begged "a lot"');
+  check('quotes and commas inside a note; written-out date; pet name in any case', sym && sym.date === '2026-09-22' && sym.petId === 'p-pepper');
+  check('symptom labels imply the Symptom tag', sym && sym.tags.includes('symptom') && JSON.stringify(sym.symptoms) === JSON.stringify(['Restless', 'Begging']));
+  const play = find('Zoomies');
+  check('play size and labels; 2-digit year', play && play.playSize === 'big' && play.playKinds[0] === 'Bed game' && play.tags.includes('activity') && play.date === '2026-09-23');
+  const bis = A.state().pets.find((p) => p.name === 'Biscuit');
+  const g = find('Groomer');
+  check('new pet created and its log saved', bis && g && g.petId === bis.id && g.weight === 24.5 && g.tags.includes('vet') && g.cost === 85.5, g);
+  check('imported logs record the current format version', recs.slice(-5).every((r) => r.v === DATA_VERSION));
+
+  // The same file again
+  await importCsv(A, csv);
+  check('importing the same file again adds nothing', /Nothing new to add/.test(preview(A)) && /5 rows are already in the app/.test(preview(A)) && !A.$('impAdd'), preview(A));
+  A.click('impCancel');
+
+  // Problems are listed by row; good rows still import
+  const bad = [
+    'pet,date,lb,oz,tags,mood,play size,note',
+    ',2026-09-20,12,,,,,no pet',
+    'Pepper,13/45/2026,,,,,,bad date',
+    'Pepper,2026-09-20,-2,,,,,negative',
+    'Pepper,2026-09-20,,,,9,,mood too high',
+    'Pepper,2026-09-20,,,activity,,huge,bad size',
+    'Pepper,2026-09-20,,,,,,',
+    'Pepper,2026-09-20,,,zoomies,,,good row with an odd tag'
+  ].join('\n');
+  await importCsv(A, bad);
+  const bp = preview(A);
+  check('problem rows listed by row number', /6 rows have problems/.test(bp) && /Row 2: No pet name/.test(bp) && /Row 3: Date "13\/45\/2026"/.test(bp) &&
+    /Row 4: Weight/.test(bp) && /Row 5: Mood/.test(bp) && /Row 6: Play size "huge"/.test(bp) && /Row 7: Nothing to log/.test(bp), bp);
+  check('good rows still import', /1 new log to add/.test(bp));
+  check('unknown tags are mentioned, not silently dropped', /Tag "zoomies" isn't one the app uses/.test(bp));
+  A.click('impCancel');
+  check('cancelling saves nothing', A.state().records.length === startCount + 5);
+
+  await importCsv(A, 'animal,day\nPepper,2026-09-20');
+  check('missing pet/date columns explained', /must be column names, including "pet" and "date"/.test(preview(A)) && !A.$('impAdd'));
+  A.click('impCancel');
+
+  // Export CSV, then import it: everything is already there
+  A.click('exportCsvBtn'); await wait();
+  const exported = await readBlob(A, A.downloads[A.downloads.length - 1]);
+  await importCsv(A, exported);
+  const all = A.state().records.length;
+  check('re-importing Export CSV finds every log already there', /Nothing new to add/.test(preview(A)) && new RegExp(all + ' rows are already in the app').test(preview(A)), preview(A).slice(0, 160));
+  A.click('impCancel');
+
+  // Stored text shown safely in the preview
+  await importCsv(A, 'pet,date,note\n"<img src=x id=pwned>",2026-09-20,hi');
+  check('names in the preview are shown as text', !A.d.getElementById('pwned') && /<img src=x id=pwned>/.test(preview(A)));
+  A.click('impCancel');
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+
+  // Vault size limit
+  const big = vault(CODE);
+  for (let i = big.records.length; i < 4995; i++) big.records.push({ id: 'f' + i, petId: 'p-pepper', date: '2026-01-01', type: 'symptom', note: 'n' + i });
+  resetServer({ [CODE]: big });
+  A = openApp(makeClient('b'), linked(CODE, big));
+  await settle();
+  const rows = ['pet,date,note'];
+  for (let i = 0; i < 10; i++) rows.push('Pepper,2026-09-20,new ' + i);
+  await importCsv(A, rows.join('\n'));
+  check('refuses to go past 5,000 logs', /the limit is 5,000/.test(preview(A)) && !A.$('impAdd'), preview(A));
+  A.close();
+}
+
+// =====================================================================
 // PREVIOUS VERSION (optional): old and new copies of the app together
 // =====================================================================
 async function previousVersion() {
@@ -1140,6 +1371,8 @@ async function previousVersion() {
     await runGroup('Themes' + tag, themes);
     await runGroup('Vet summary' + tag, vetSummary);
     await runGroup('Labels & play' + tag, labelsAndPlay);
+    await runGroup('Weight units' + tag, weightUnits);
+    await runGroup('Bulk import' + tag, bulkImport);
     if (PREVIOUS_HTML) await runGroup('Previous version' + tag, previousVersion);
   }
   let pass = 0, total = 0;
