@@ -812,11 +812,51 @@ h1 {
     transition-duration: .01ms !important;
   }
 }
-/* ============ TYPE-SPECIFIC LOG FIELDS ============ */
+/* ============ LOG FORM: TAGS, MEDICINES, STARS ============ */
 .type-fields { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
-.field[hidden] { display: none !important; }
-.more-fields { justify-self: start; margin-top: -4px; }
-.more-fields[hidden] { display: none; }
+.tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-chip {
+  min-height: 34px; padding: 6px 12px; border-radius: 999px;
+  background: white; color: var(--ink-2); border: 1px solid var(--line-2);
+  font-size: 13px; font-weight: 500;
+}
+.tag-chip:hover { background: var(--bg); }
+.tag-chip[aria-pressed="true"] { border-color: transparent; font-weight: 600; }
+.tag-chip.symptom[aria-pressed="true"] { background: #f5dfdf; color: #802424; }
+.tag-chip.vomit[aria-pressed="true"] { background: #f1d9c8; color: #6e3315; }
+.tag-chip.diarrhea[aria-pressed="true"] { background: #ead9bc; color: #5e3f0b; }
+.tag-chip.activity[aria-pressed="true"] { background: #e0eaf5; color: #2c4566; }
+.tag-chip.vet[aria-pressed="true"] { background: #ebe2f2; color: #4d2e6b; }
+.field-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.star {
+  min-height: 24px; width: 24px; padding: 0; border-radius: 999px;
+  background: transparent; color: var(--line-2); font-size: 16px; line-height: 1;
+}
+.star:hover { background: var(--amber-soft); color: var(--amber); }
+.star[aria-pressed="true"] { color: var(--amber); }
+.med-section { display: grid; gap: 8px; }
+.med-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.med-rows { display: grid; gap: 8px; }
+.med-rows:empty { display: none; }
+.med-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.med-row .med-note { grid-column: 1 / -1; }
+.med-row input { min-height: 38px; padding: 7px 10px; font-size: 14px; }
+.med-row .remove-med { min-height: 32px; width: 32px; padding: 0; background: transparent; color: var(--muted); font-size: 16px; }
+.med-row .remove-med:hover { background: var(--bg-2); color: var(--danger); }
+.med-row .star { min-height: 32px; width: 32px; font-size: 18px; }
+.med-lines { display: grid; gap: 4px; margin-top: 10px; }
+.med-line { font-size: 13px; color: var(--ink-2); }
+.med-line b { color: var(--ink); font-weight: 600; }
+.med-line span { color: var(--muted); }
 
 /* ============ TODAY / ROUTINE ============ */
 @media (min-width: 721px) { #panel-home { display: grid; gap: 18px; } }
@@ -856,15 +896,30 @@ h1 {
   font-size: 13px; font-weight: 500;
 }
 .chip:hover { background: var(--sage-soft); border-color: var(--sage); }
-.routine-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--bg); border-radius: var(--radius-sm); }
-.routine-add { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 8px; margin-top: 10px; }
-@media (max-width: 480px) { .routine-add { grid-template-columns: 1fr; } }
+.routine-desc { color: var(--ink-2) !important; white-space: normal; }
+.routine-desc-wrap { grid-column: 2 / -1; display: flex; gap: 6px; align-items: center; }
+.routine-desc-wrap .routine-desc-input { flex: 1; min-width: 0; }
+.routine-desc-wrap button[hidden] { display: none; }
+.routine-desc-input {
+  grid-column: 2 / -1;
+  min-height: 38px;
+  padding: 7px 12px;
+  background: white;
+  color: var(--ink-2);
+}
 .small-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 14px 0 6px; }
 
 /* ============ WEIGHT TREND SUMMARY ============ */
 .chart-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
 .chart-summary:empty { display: none; }
 .chart-summary .badge b { color: var(--ink); font-weight: 600; }
+.update-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-radius: var(--radius);
+  background: var(--amber-soft); color: #5e430c; font-size: 14px; font-weight: 500;
+  border: 1px solid #e6d3a0;
+}
+.update-banner[hidden] { display: none; }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -872,6 +927,10 @@ h1 {
 <body>
 
 <div class="app">
+  <div class="update-banner" id="updateBanner" role="alert" hidden>
+    <span>Your data was saved by a newer version of this app. Changes on this device won't be saved until you reload.</span>
+    <button type="button" class="sage tiny" onclick="location.reload()">Reload</button>
+  </div>
   <header class="header">
     <div class="brand">
       <div class="logo" aria-hidden="true">🐾</div>
@@ -947,7 +1006,7 @@ h1 {
         <section class="today card" id="todayCard" hidden>
           <div class="section-h">
             <h2 id="todayTitle">Today</h2>
-            <button type="button" class="ghost tiny" id="editRoutineBtn">Edit routine</button>
+            <span class="hint">Daily routine</span>
           </div>
           <div id="todayList"></div>
         </section>
@@ -963,30 +1022,25 @@ h1 {
             </div>
             <form id="recordForm" autocomplete="off">
               <input type="hidden" id="rId" value="">
-              <div class="form-grid cols-2">
-                <label class="field">Date<input type="date" id="rDate" required></label>
-                <label class="field">Type
-                  <select id="rType">
-                    <option value="weight">Weight</option>
-                    <option value="meal">Meal</option>
-                    <option value="medication">Medication</option>
-                    <option value="activity">Activity</option>
-                    <option value="symptom">Symptom</option>
-                    <option value="vomit">Vomit</option>
-                    <option value="diarrhea">Diarrhea</option>
-                    <option value="vet">Vet visit</option>
-                  </select>
-                </label>
+              <label class="field">Date<input type="date" id="rDate" required></label>
+              <div class="tag-chips" id="rTags" role="group" aria-label="Event tags">
+                <button type="button" class="tag-chip symptom" data-tag="symptom" aria-pressed="false">Symptom</button>
+                <button type="button" class="tag-chip vomit" data-tag="vomit" aria-pressed="false">Vomit</button>
+                <button type="button" class="tag-chip diarrhea" data-tag="diarrhea" aria-pressed="false">Diarrhea</button>
+                <button type="button" class="tag-chip activity" data-tag="activity" aria-pressed="false">Activity</button>
+                <button type="button" class="tag-chip vet" data-tag="vet" aria-pressed="false">Vet visit</button>
               </div>
               <div class="form-grid type-fields">
-                <label class="field" data-field="weight">Weight<input type="number" step="0.01" id="rWeight" inputmode="decimal" placeholder="lb / kg"></label>
-                <label class="field" data-field="med">Medication<input id="rMed" list="medOptions" placeholder="e.g. Famotidine"></label>
-                <label class="field" data-field="food">Food<input id="rFood" list="foodOptions" placeholder="meal / brand"></label>
-                <label class="field" data-field="activity">Activity<input type="number" id="rActivity" inputmode="numeric" placeholder="min"></label>
-                <label class="field" data-field="mood">Mood<input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
-                <label class="field" data-field="cost">Cost<input type="number" step="0.01" id="rCost" inputmode="decimal" placeholder="$"></label>
+                <label class="field"><span class="field-head">Weight <button type="button" class="star" id="starWeight" title="Weigh in every day" aria-label="Weigh in every day" aria-pressed="false">☆</button></span><input type="number" step="0.01" id="rWeight" inputmode="decimal" placeholder="lb / kg"></label>
+                <label class="field">Mood<input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
+                <label class="field">Food<input id="rFood" list="foodOptions" placeholder="meal / brand"></label>
+                <label class="field">Activity<input type="number" id="rActivity" inputmode="numeric" placeholder="min"></label>
+                <label class="field">Cost<input type="number" step="0.01" id="rCost" inputmode="decimal" placeholder="$"></label>
               </div>
-              <button type="button" class="ghost tiny more-fields" id="moreFields">Show all fields</button>
+              <div class="med-section">
+                <div class="med-head"><span class="small-label" style="margin:0">Medicines</span><button type="button" class="ghost tiny" id="addMedRow">＋ Medicine</button></div>
+                <div class="med-rows" id="medRows"></div>
+              </div>
               <label class="field">Note<textarea id="rNote" placeholder="Symptoms, appetite, behavior, vet instructions…"></textarea></label>
               <datalist id="medOptions"></datalist>
               <datalist id="foodOptions"></datalist>
@@ -1067,6 +1121,15 @@ h1 {
   // ===== STATE =====
   // Keep storage key compatible with v1.2.0 so existing user data is preserved.
   var STORAGE_KEY = 'petHealth.responsive.v120';
+  // Event tags a user picks. Everything else about a log (weight, medication,
+  // meal) is derived from the data it holds — see kindsOf().
+  var TAGS = ['symptom', 'vomit', 'diarrhea', 'activity', 'vet'];
+  // Version of the saved log format. Bump it whenever the shape of a log
+  // changes. A device that finds logs in a newer format than it understands
+  // stops saving and asks for a reload, so an out-of-date copy of the app
+  // (e.g. a phone that hasn't reloaded since an update) can't damage them.
+  var DATA_VERSION = 2;
+  var newerDataSeen = false;
 
   // ===== FIREBASE =====
   var db = null;
@@ -1085,7 +1148,8 @@ h1 {
   var activePetId = state.pets[0] ? state.pets[0].id : null;
   var chart = null;
   var editingLogId = null;
-  var showAllFields = false;
+  // Checklist text typed but not logged yet, kept across redraws.
+  var routineDrafts = {};
 
   // ===== DOM HELPERS =====
   var $ = function (id) { return document.getElementById(id); };
@@ -1102,9 +1166,11 @@ h1 {
   $('addPetBtn').addEventListener('click', openAddPetModal);
   $('recordForm').addEventListener('submit', handleRecordSubmit);
   $('clearForm').addEventListener('click', clearRecordForm);
-  $('rType').addEventListener('change', updateFieldVisibility);
-  $('moreFields').addEventListener('click', function () { showAllFields = true; updateFieldVisibility(); });
-  $('editRoutineBtn').addEventListener('click', openRoutineEditor);
+  $('addMedRow').addEventListener('click', function () { addMedRow('', '').querySelector('.med-name').focus(); });
+  $('starWeight').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'weight' }); });
+  $('rTags').querySelectorAll('.tag-chip').forEach(function (b) {
+    b.addEventListener('click', function () { b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true'); });
+  });
   $('chartMode').addEventListener('change', renderChart);
   $('search').addEventListener('input', renderRecords);
   $('exportCsvBtn').addEventListener('click', exportCsv);
@@ -1131,7 +1197,6 @@ h1 {
   if (firstVisit && !syncCode) seed();
   activePetId = state.pets[0] ? state.pets[0].id : null;
   renderAuthBtn();
-  updateFieldVisibility();
   render();
 
   // Keep this device in step with the cloud if it's linked to a vault
@@ -1139,10 +1204,12 @@ h1 {
 
   // ===== RENDER PIPELINE =====
   function render() {
+    $('updateBanner').hidden = !newerDataSeen;
     renderPets();
     renderSummary();
     renderToday();
     refreshSuggestions();
+    renderStars();
     renderRecords();
     renderChart();
   }
@@ -1193,31 +1260,32 @@ h1 {
     $('deletePetBtn').addEventListener('click', function () { confirmDeletePet(p); });
     $('heroMeta').textContent = (p.species || 'Pet') + (p.breed ? ' · ' + p.breed : '') + age(p.birthday);
 
-    var weights = rs.filter(function (r) { return r.weight !== '' && r.weight != null; }).sort(byDate);
-    var moods = rs.filter(function (r) { return r.mood !== '' && r.mood != null; }).map(function (r) { return Number(r.mood); });
+    var weights = rs.filter(function (r) { return has(r.weight); }).sort(byDate);
+    var moods = rs.filter(function (r) { return has(r.mood); }).map(function (r) { return Number(r.mood); });
     $('sWeight').textContent = weights.length ? weights[weights.length - 1].weight : '—';
     $('sMood').textContent = moods.length ? avg(moods).toFixed(1) : '—';
-    $('sMeds').textContent = rs.filter(function (r) { return r.type === 'medication'; }).length;
+    $('sMeds').textContent = rs.reduce(function (n, r) { return n + r.meds.length; }, 0);
     $('sRecords').textContent = rs.length;
 
     var notes = [];
     if (rs.length) {
       var latest = rs.slice().sort(function (a, b) { return b.date.localeCompare(a.date); })[0];
-      notes.push('Last log: ' + latest.date + ' — ' + label(latest.type) + '.');
+      var kinds = kindsOf(latest).map(label);
+      notes.push('Last log: ' + latest.date + (kinds.length ? ' — ' + kinds.join(', ') : '') + '.');
     } else {
       notes.push("No logs yet. Add today's baseline.");
     }
-    var symptoms = rs.filter(function (r) { return r.type === 'symptom'; }).length;
+    var symptoms = rs.filter(function (r) { return hasTag(r, 'symptom'); }).length;
     if (symptoms) notes.push(symptoms + ' symptom log' + (symptoms === 1 ? '' : 's') + ' recorded.');
     // Highlight recent GI events (last 14 days) — these matter more by recency than total
     var cutoffDay = new Date();
     cutoffDay.setDate(cutoffDay.getDate() - 14);
     var giCutoff = localDate(cutoffDay);
-    var recentVomit = rs.filter(function (r) { return r.type === 'vomit' && r.date >= giCutoff; }).length;
-    var recentDiarrhea = rs.filter(function (r) { return r.type === 'diarrhea' && r.date >= giCutoff; }).length;
+    var recentVomit = rs.filter(function (r) { return hasTag(r, 'vomit') && r.date >= giCutoff; }).length;
+    var recentDiarrhea = rs.filter(function (r) { return hasTag(r, 'diarrhea') && r.date >= giCutoff; }).length;
     if (recentVomit) notes.push(recentVomit + ' vomit episode' + (recentVomit === 1 ? '' : 's') + ' in the last 14 days.');
     if (recentDiarrhea) notes.push(recentDiarrhea + ' diarrhea episode' + (recentDiarrhea === 1 ? '' : 's') + ' in the last 14 days.');
-    var vets = rs.filter(function (r) { return r.type === 'vet'; }).length;
+    var vets = rs.filter(function (r) { return hasTag(r, 'vet'); }).length;
     if (vets) notes.push(vets + ' vet visit' + (vets === 1 ? '' : 's') + ' on file.');
     var cost = rs.reduce(function (s, r) { return s + (Number(r.cost) || 0); }, 0);
     if (cost) notes.push('Tracked care costs: $' + cost.toFixed(2) + '.');
@@ -1227,8 +1295,11 @@ h1 {
   function renderRecords() {
     var q = ($('search').value || '').toLowerCase();
     var rs = petRecords()
-      .filter(function (r) { return !q || JSON.stringify(r).toLowerCase().indexOf(q) >= 0; })
-      .sort(function (a, b) { return b.date.localeCompare(a.date); });
+      .map(function (r, i) { return { r: r, i: i }; })
+      .filter(function (x) { return !q || JSON.stringify(x.r).toLowerCase().indexOf(q) >= 0; })
+      // Newest day first; within a day, the most recently added log first.
+      .sort(function (a, b) { return b.r.date.localeCompare(a.r.date) || b.i - a.i; })
+      .map(function (x) { return x.r; });
 
     if (!rs.length) {
       $('records').innerHTML = '<div class="empty"><b>No logs found</b>' +
@@ -1239,17 +1310,20 @@ h1 {
     $('records').innerHTML = rs.map(function (r) {
       var bits = [];
       // Every value is escaped: vault data can be written by anyone with the code.
-      if (r.weight !== '' && r.weight != null) bits.push('Wt ' + esc(r.weight));
-      if (r.mood !== '' && r.mood != null) bits.push('Mood ' + esc(r.mood) + '/5');
-      if (r.activity !== '' && r.activity != null) bits.push(esc(r.activity) + ' min');
-      if (r.cost !== '' && r.cost != null && Number(r.cost) > 0) bits.push('$' + Number(r.cost).toFixed(2));
+      if (has(r.weight)) bits.push('Wt ' + esc(r.weight));
+      if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
+      if (has(r.activity)) bits.push(esc(r.activity) + ' min');
+      if (has(r.cost) && Number(r.cost) > 0) bits.push('$' + Number(r.cost).toFixed(2));
       if (r.food) bits.push(esc(r.food));
-      if (r.med) bits.push(esc(r.med));
+      var kinds = kindsOf(r);
+      var pills = kinds.length
+        ? kinds.map(function (k) { return '<span class="type-pill ' + esc(k) + '">' + esc(label(k)) + '</span>'; }).join('')
+        : '<span class="type-pill">Note</span>';
       return '' +
         '<div class="record" data-id="' + esc(r.id) + '">' +
           '<div class="record-top">' +
             '<div class="record-top-left">' +
-              '<div class="record-type"><span class="type-pill ' + esc(r.type) + '">' + esc(label(r.type)) + '</span></div>' +
+              '<div class="record-type">' + pills + '</div>' +
               '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
             '</div>' +
             '<div class="record-actions">' +
@@ -1258,6 +1332,9 @@ h1 {
             '</div>' +
           '</div>' +
           (bits.length ? '<div class="metrics">' + bits.map(function (b) { return '<span class="badge">' + b + '</span>'; }).join('') + '</div>' : '') +
+          (r.meds.length ? '<div class="med-lines">' + r.meds.map(function (m) {
+            return '<div class="med-line"><b>' + esc(m.name) + '</b>' + (m.note ? ' <span>· ' + esc(m.note) + '</span>' : '') + '</div>';
+          }).join('') + '</div>' : '') +
           (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
         '</div>';
     }).join('');
@@ -1273,29 +1350,75 @@ h1 {
   // ===== DAILY ROUTINE =====
   // Each pet can have a routine: medicines given every day and an optional
   // weigh-in. It's stored on the pet (pet.routine), so it syncs like any other
-  // pet detail and needs no change to the Firebase rules.
+  // pet detail. Items are added and removed with the ★ toggles on the log form
+  // and on the Today card.
   function normName(v) { return String(v == null ? '' : v).trim().replace(/\s+/g, ' ').toLowerCase(); }
   function timeOf(iso) {
     var d = new Date(iso);
     return isNaN(d.getTime()) ? '' : d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   }
-  // Pair each routine item with a log from today, if there is one. Logs made
-  // through the normal form count too, so nothing is logged twice.
+  // The most recent description logged for this medicine and pet. Logs from
+  // before per-medicine notes existed kept the dose in the log's own note.
+  function lastMedNote(records, petId, med) {
+    var best = '', bestDate = '';
+    records.forEach(function (r) {
+      if (r.petId !== petId || r.date < bestDate) return;
+      r.meds.forEach(function (m) {
+        if (normName(m.name) !== normName(med)) return;
+        var note = m.note || (r.meds.length === 1 ? r.note : '');
+        if (note) { best = note; bestDate = r.date; }
+      });
+    });
+    return best;
+  }
+  function routineItemFor(pet, kind, med) {
+    return (pet.routine || []).find(function (it) {
+      return kind === 'weight' ? it.kind === 'weight' : (it.kind !== 'weight' && normName(it.med) === normName(med));
+    });
+  }
+  // Add or remove a daily item. item: { kind: 'weight' } or { kind: 'medication', med, note }.
+  function toggleRoutine(pet, item) {
+    if (!pet) return toast('Add a pet first');
+    var isWeight = item.kind === 'weight';
+    var existing = routineItemFor(pet, item.kind, item.med);
+    if (existing) {
+      pet.routine = pet.routine.filter(function (it) { return it !== existing; });
+      toast((isWeight ? 'Weigh-in' : existing.med) + ' removed from daily routine');
+    } else {
+      var name = String(item.med || '').trim().replace(/\s+/g, ' ');
+      if (!isWeight && !name) return toast('Enter a medicine name first');
+      pet.routine = (pet.routine || []).concat([isWeight
+        ? { id: uid(), kind: 'weight' }
+        : { id: uid(), kind: 'medication', med: name, note: String(item.note || '').trim() || lastMedNote(state.records, pet.id, name) }]);
+      delete pet.sample; // a demo pet with a routine is now the user's own
+      toast((isWeight ? 'Weigh-in' : name) + ' added to daily routine');
+    }
+    save();
+    render();
+  }
+
+  // Pair each routine item with the part of today's logs that covers it. Logs
+  // made through the normal form count too, so nothing is logged twice.
   function routineStatus(pet) {
     var t = today();
     var todays = state.records.filter(function (r) { return r.petId === pet.id && r.date === t; });
     var used = {};
     return (pet.routine || []).map(function (item) {
       var match = null;
-      for (var i = 0; i < todays.length; i++) {
+      for (var i = 0; i < todays.length && !match; i++) {
         var r = todays[i];
-        if (used[r.id]) continue;
-        var ok = item.kind === 'weight'
-          ? (r.type === 'weight' && r.weight !== '' && r.weight != null)
-          : (r.type === 'medication' && normName(r.med) === normName(item.med));
-        if (ok) { match = r; used[r.id] = true; break; }
+        if (item.kind === 'weight') {
+          if (has(r.weight) && !used[r.id + ':w']) { used[r.id + ':w'] = true; match = { log: r, med: null }; }
+          continue;
+        }
+        for (var j = 0; j < r.meds.length; j++) {
+          if (used[r.id + ':' + j] || normName(r.meds[j].name) !== normName(item.med)) continue;
+          used[r.id + ':' + j] = true;
+          match = { log: r, med: r.meds[j] };
+          break;
+        }
       }
-      return { item: item, log: match };
+      return { item: item, log: match ? match.log : null, med: match ? match.med : null };
     });
   }
   function renderToday() {
@@ -1307,84 +1430,210 @@ h1 {
     var rows = routineStatus(p);
     var list = $('todayList');
     if (!rows.length) {
-      $('editRoutineBtn').hidden = true;
+      var suggestions = suggestMeds(p);
       list.innerHTML =
-        '<p class="routine-intro">Add the medicines and weigh-ins ' + esc(p.name) + ' gets every day, then log each one with a single tap.</p>' +
-        '<button type="button" class="sage" id="setupRoutineBtn">Set up daily routine</button>';
-      $('setupRoutineBtn').addEventListener('click', openRoutineEditor);
+        '<p class="routine-intro">Tap ★ next to a medicine or the weight field in the log form and it will appear here every day, ready to log with one tap.</p>' +
+        (suggestions.length
+          ? '<p class="small-label" style="margin-top:0">Given often lately</p><div class="chip-row" style="margin-bottom:0">' + suggestions.map(function (m, i) {
+              return '<button class="chip" type="button" data-suggest="' + i + '">★ ' + esc(m) + '</button>';
+            }).join('') + '</div>'
+          : '');
+      list.querySelectorAll('[data-suggest]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          toggleRoutine(p, { kind: 'medication', med: suggestions[Number(b.getAttribute('data-suggest'))] });
+        });
+      });
       return;
     }
-    $('editRoutineBtn').hidden = false;
+
+    // Remember which checklist field has the cursor, so a redraw (e.g. a cloud
+    // update arriving) can put it back exactly where it was.
+    var focus = null;
+    var ae = document.activeElement;
+    if (ae && list.contains(ae) && ae.getAttribute('data-draft')) {
+      focus = { key: ae.getAttribute('data-draft'), start: null, end: null };
+      try { focus.start = ae.selectionStart; focus.end = ae.selectionEnd; } catch (e) {}
+    }
+    function draftKey(it, field) { return p.id + ':' + it.id + ':' + field; }
+    function draftOr(it, field, fallback) {
+      var k = draftKey(it, field);
+      return Object.prototype.hasOwnProperty.call(routineDrafts, k) ? routineDrafts[k] : fallback;
+    }
+
     var doneCount = rows.filter(function (r) { return r.log; }).length;
-    var remainingMeds = rows.filter(function (r) { return !r.log && r.item.kind !== 'weight'; });
+    var remaining = rows.map(function (r, i) { return i; }).filter(function (i) { return !rows[i].log; });
     list.innerHTML =
       '<div class="routine-list">' + rows.map(function (row, i) {
         var it = row.item, log = row.log;
-        var title = it.kind === 'weight' ? 'Weigh-in' : esc(it.med);
-        var sub = log
-          ? (it.kind === 'weight' ? esc(log.weight) + ' · ' : '') + (log.loggedAt ? 'Logged ' + esc(timeOf(log.loggedAt)) : 'Logged today')
-          : 'Not yet today';
-        var actions = log
-          ? '<button class="ghost tiny" data-undo="' + i + '" type="button">Undo</button>'
-          : (it.kind === 'weight'
-              ? '<input type="number" step="0.01" inputmode="decimal" placeholder="Weight" data-weight="' + i + '" aria-label="Weight">'
-              : '') + '<button class="sage tiny" data-log="' + i + '" type="button">Log</button>';
-        return '<div class="routine-row' + (log ? ' done' : '') + '">' +
+        var isWeight = it.kind === 'weight';
+        var title = isWeight ? 'Weigh-in' : esc(it.med);
+        var stop = '<button class="star" data-stop="' + i + '" type="button" title="Stop repeating daily" aria-label="Stop repeating daily" aria-pressed="true">★</button>';
+        if (log) {
+          var at = (row.med && row.med.at) || log.loggedAt;
+          var sub = (isWeight ? esc(log.weight) + ' · ' : '') + (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
+          // Older single-medicine logs kept the dose in the log's own note.
+          var desc = isWeight ? '' : (row.med.note || (!log.routine && log.meds.length === 1 ? log.note : ''));
+          return '<div class="routine-row done">' +
+            '<div class="routine-check" aria-hidden="true">✓</div>' +
+            '<div class="routine-main"><b>' + title + '</b>' +
+              (desc ? '<span class="routine-desc">' + esc(desc) + '</span>' : '') +
+              '<span>' + sub + '</span></div>' +
+            '<div class="routine-actions"><button class="ghost tiny" data-undo="' + i + '" type="button">Undo</button>' + stop + '</div>' +
+          '</div>';
+        }
+        // Not logged yet: the dose is editable and pre-filled with the routine's
+        // default. Changes apply to this one log only.
+        var noteKey = draftKey(it, 'note');
+        var weightKey = draftKey(it, 'weight');
+        return '<div class="routine-row">' +
           '<div class="routine-check" aria-hidden="true">✓</div>' +
-          '<div class="routine-main"><b>' + title + '</b><span>' + sub + '</span></div>' +
-          '<div class="routine-actions">' + actions + '</div>' +
+          '<div class="routine-main"><b>' + title + '</b><span>Not yet today</span></div>' +
+          '<div class="routine-actions">' +
+            (isWeight
+              ? '<input type="number" step="0.01" inputmode="decimal" placeholder="Weight" aria-label="Weight"' +
+                ' data-row="' + i + '" data-field="weight" data-draft="' + esc(weightKey) + '"' +
+                ' value="' + esc(draftOr(it, 'weight', '')) + '">'
+              : '') +
+            '<button class="sage tiny" data-log="' + i + '" type="button">Log</button>' + stop +
+          '</div>' +
+          (isWeight ? '' :
+            '<div class="routine-desc-wrap">' +
+              '<input class="routine-desc-input" data-row="' + i + '" data-field="note" data-draft="' + esc(noteKey) + '"' +
+                ' value="' + esc(draftOr(it, 'note', it.note || '')) + '"' +
+                ' placeholder="Dose / note (optional)" aria-label="Note for ' + esc(it.med) + '">' +
+              // Shown once the dose differs from the saved default
+              '<button class="ghost tiny" data-default="' + i + '" type="button"' +
+                (String(draftOr(it, 'note', it.note || '')).trim() === String(it.note || '').trim() ? ' hidden' : '') +
+                '>Make default</button>' +
+            '</div>') +
         '</div>';
       }).join('') + '</div>' +
       '<div class="routine-footer"><span class="progress">' + doneCount + ' of ' + rows.length + ' done</span>' +
-        (remainingMeds.length >= 2 ? '<button class="secondary tiny" id="logAllMeds" type="button">Log all ' + remainingMeds.length + ' medicines</button>' : '') +
+        (remaining.length >= 2 ? '<button class="secondary tiny" id="logAllMeds" type="button">Log all remaining</button>' : '') +
       '</div>';
 
-    list.querySelectorAll('[data-log]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var i = Number(b.getAttribute('data-log'));
-        var input = list.querySelector('[data-weight="' + i + '"]');
-        logRoutineItems(p.id, [rows[i].item], input ? input.value : '');
-      });
-    });
-    list.querySelectorAll('[data-weight]').forEach(function (input) {
+    function field(i, name) {
+      var el = list.querySelector('[data-row="' + i + '"][data-field="' + name + '"]');
+      return el ? el.value : '';
+    }
+    function entry(i) { return { item: rows[i].item, note: field(i, 'note'), weight: field(i, 'weight') }; }
+
+    list.querySelectorAll('[data-draft]').forEach(function (input) {
+      input.addEventListener('input', function () { routineDrafts[input.getAttribute('data-draft')] = input.value; });
       input.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter') return;
-        var i = Number(input.getAttribute('data-weight'));
-        logRoutineItems(p.id, [rows[i].item], input.value);
+        e.preventDefault();
+        logRoutineItems(p.id, [entry(Number(input.getAttribute('data-row')))], false);
       });
     });
+    list.querySelectorAll('[data-log]').forEach(function (b) {
+      b.addEventListener('click', function () { logRoutineItems(p.id, [entry(Number(b.getAttribute('data-log')))], false); });
+    });
     list.querySelectorAll('[data-undo]').forEach(function (b) {
+      b.addEventListener('click', function () { undoRoutineLog(rows[Number(b.getAttribute('data-undo'))]); });
+    });
+    // Changing the dose in a row offers to save it as the medicine's default.
+    list.querySelectorAll('[data-default]').forEach(function (b) {
+      var i = Number(b.getAttribute('data-default'));
+      var input = list.querySelector('[data-row="' + i + '"][data-field="note"]');
+      input.addEventListener('input', function () {
+        b.hidden = input.value.trim() === String(rows[i].item.note || '').trim();
+      });
       b.addEventListener('click', function () {
-        var log = rows[Number(b.getAttribute('data-undo'))].log;
-        state.records = state.records.filter(function (r) { return r.id !== log.id; });
+        var cur = state.pets.find(function (x) { return x.id === p.id; });
+        var item = cur && (cur.routine || []).find(function (it) { return it.id === rows[i].item.id; });
+        if (!item) return toast('This item was removed on another device');
+        item.note = input.value.trim();
+        delete routineDrafts[p.id + ':' + item.id + ':note'];
         save();
         render();
-        toast('Removed');
+        toast('New default dose for ' + item.med);
+      });
+    });
+    list.querySelectorAll('[data-stop]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var it = rows[Number(b.getAttribute('data-stop'))].item;
+        var what = it.kind === 'weight' ? 'the daily weigh-in' : it.med;
+        // Sits right beside Log, so confirm rather than remove on a stray tap.
+        if (!confirm('Stop showing ' + what + ' every day?\n\nToday\'s log isn\'t affected. You can add it back with ★ in the log form.')) return;
+        toggleRoutine(p, { kind: it.kind, med: it.med });
       });
     });
     if ($('logAllMeds')) {
-      $('logAllMeds').addEventListener('click', function () {
-        logRoutineItems(p.id, remainingMeds.map(function (r) { return r.item; }), '');
-      });
+      $('logAllMeds').addEventListener('click', function () { logRoutineItems(p.id, remaining.map(entry), true); });
+    }
+
+    if (focus) {
+      var fields = list.querySelectorAll('[data-draft]');
+      for (var f = 0; f < fields.length; f++) {
+        if (fields[f].getAttribute('data-draft') !== focus.key) continue;
+        fields[f].focus();
+        try { if (focus.start != null) fields[f].setSelectionRange(focus.start, focus.end); } catch (e) {}
+        break;
+      }
     }
   }
-  function logRoutineItems(petId, items, weightValue) {
+  // entries: [{ item, note, weight }] — note and weight as typed on the checklist.
+  // Items go into today's routine log for the pet (created if needed), so a
+  // whole day's routine is one log rather than one per medicine. With `lenient`
+  // a weigh-in left blank is skipped instead of blocking the others.
+  function logRoutineItems(petId, entries, lenient) {
     var now = new Date().toISOString();
-    var added = [];
-    for (var i = 0; i < items.length; i++) {
-      var it = items[i];
-      var isWeight = it.kind === 'weight';
-      if (isWeight && (weightValue === '' || !(Number(weightValue) > 0))) { toast('Enter a weight first'); return; }
-      added.push({
-        id: uid(), petId: petId, date: today(), type: isWeight ? 'weight' : 'medication',
-        weight: isWeight ? Number(weightValue) : '', mood: '', activity: '', cost: '',
-        food: '', med: isWeight ? '' : it.med, note: '', loggedAt: now
-      });
+    var meds = [], weight = '';
+    for (var i = 0; i < entries.length; i++) {
+      var en = entries[i], it = en.item;
+      if (it.kind === 'weight') {
+        if (en.weight === '' || !(Number(en.weight) > 0)) {
+          if (lenient) continue;
+          return toast('Enter a weight first');
+        }
+        weight = Number(en.weight);
+      } else {
+        meds.push({ name: it.med, note: String(en.note || '').trim(), at: now });
+      }
     }
-    state.records = state.records.concat(added);
+    if (!meds.length && weight === '') return toast('Enter a weight first');
+    var target = todayRecordFor(petId);
+    if (!target) {
+      target = blankRecord(petId, today());
+      target.loggedAt = now;
+      target.routine = true;
+      state.records.push(target);
+    }
+    target.meds = target.meds.concat(meds);
+    if (weight !== '') {
+      // A second weigh-in keeps its own log so both readings survive.
+      var w = target;
+      if (has(w.weight)) { w = blankRecord(petId, today()); w.loggedAt = now; w.routine = true; state.records.push(w); }
+      w.weight = weight;
+    }
+    // Logged: forget what was typed, so tomorrow starts from the default again.
+    entries.forEach(function (en) {
+      delete routineDrafts[petId + ':' + en.item.id + ':note'];
+      delete routineDrafts[petId + ':' + en.item.id + ':weight'];
+    });
     save();
     render();
-    toast(added.length === 1 ? (items[0].kind === 'weight' ? 'Weight logged' : items[0].med + ' logged') : added.length + ' medicines logged');
+    var n = meds.length + (weight !== '' ? 1 : 0);
+    toast(n === 1 ? (weight !== '' ? 'Weight logged' : meds[0].name + ' logged') : n + ' items logged');
+  }
+  // Today's routine log for a pet: the latest log the routine itself created
+  // today. Logs made through the form are never added to.
+  function todayRecordFor(petId) {
+    var t = today(), found = null;
+    state.records.forEach(function (r) { if (r.routine && r.petId === petId && r.date === t && !r.tags.length) found = r; });
+    return found;
+  }
+  // Take one item back out of today's log. The log itself goes only when
+  // nothing else is left in it.
+  function undoRoutineLog(row) {
+    var r = row.log;
+    if (row.med) r.meds = r.meds.filter(function (m) { return m !== row.med; });
+    else r.weight = '';
+    if (isBlankRecord(r)) state.records = state.records.filter(function (x) { return x.id !== r.id; });
+    save();
+    render();
+    toast('Removed');
   }
   // Medicines given on at least 3 of the last 14 days, most frequent first.
   function suggestMeds(pet) {
@@ -1393,99 +1642,28 @@ h1 {
     var from = localDate(cutoff);
     var days = {}, spelling = {};
     state.records.forEach(function (r) {
-      if (r.petId !== pet.id || r.type !== 'medication' || r.date < from) return;
-      var k = normName(r.med);
-      if (!k) return;
-      days[k] = days[k] || {};
-      days[k][r.date] = true;
-      spelling[k] = String(r.med).trim();
+      if (r.petId !== pet.id || r.date < from) return;
+      r.meds.forEach(function (m) {
+        var k = normName(m.name);
+        if (!k) return;
+        days[k] = days[k] || {};
+        days[k][r.date] = true;
+        spelling[k] = String(m.name).trim();
+      });
     });
     return Object.keys(days)
       .filter(function (k) { return Object.keys(days[k]).length >= 3; })
       .sort(function (a, b) { return Object.keys(days[b]).length - Object.keys(days[a]).length; })
       .map(function (k) { return spelling[k]; });
   }
-  function openRoutineEditor() {
-    var petId = activePetId;
-    if (!petId) return;
-    modalTitle.textContent = 'Daily routine';
-    function currentPet() { return state.pets.find(function (x) { return x.id === petId; }); }
-    function addItem(item) {
-      var p = currentPet();
-      if (!p) return closeModal();
-      p.routine = (p.routine || []).concat([item]);
-      delete p.sample; // a demo pet with a routine is now the user's own
-      save();
-      render();
-      draw();
-    }
-    function draw() {
-      var p = currentPet();
-      if (!p) { closeModal(); return toast('This pet was removed on another device'); }
-      var routine = p.routine || [];
-      var hasWeighIn = routine.some(function (it) { return it.kind === 'weight'; });
-      var suggestions = suggestMeds(p).filter(function (m) {
-        return !routine.some(function (it) { return it.kind !== 'weight' && normName(it.med) === normName(m); });
-      });
-      modalBody.innerHTML =
-        '<p class="routine-intro">What does ' + esc(p.name) + ' get every day? Each item appears on the home screen with a one-tap Log button.</p>' +
-        (routine.length
-          ? '<div class="routine-list">' + routine.map(function (it, i) {
-              return '<div class="routine-edit-row"><span>' + (it.kind === 'weight' ? '⚖️ Weigh-in' : '💊 ' + esc(it.med)) + '</span>' +
-                '<button class="ghost tiny" data-remove="' + i + '" type="button">Remove</button></div>';
-            }).join('') + '</div>'
-          : '') +
-        (suggestions.length
-          ? '<p class="small-label">Given often lately</p><div class="chip-row">' + suggestions.map(function (m, i) {
-              return '<button class="chip" type="button" data-suggest="' + i + '">+ ' + esc(m) + '</button>';
-            }).join('') + '</div>'
-          : '') +
-        '<p class="small-label">Add an item</p>' +
-        '<div class="routine-add">' +
-          '<select id="rtKind" aria-label="Item type"><option value="medication">Medicine</option>' + (hasWeighIn ? '' : '<option value="weight">Weigh-in</option>') + '</select>' +
-          '<input id="rtMed" list="medOptions" placeholder="Medicine name" autocomplete="off" aria-label="Medicine name">' +
-          '<button class="secondary" id="rtAdd" type="button">Add</button>' +
-        '</div>' +
-        '<div class="form-actions" style="margin-top:16px"><button class="sage" id="rtDone" type="button">Done</button></div>';
-
-      modalBody.querySelectorAll('[data-remove]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          var cur = currentPet();
-          if (!cur) return closeModal();
-          var i = Number(b.getAttribute('data-remove'));
-          cur.routine = (cur.routine || []).filter(function (_, j) { return j !== i; });
-          save();
-          render();
-          draw();
-        });
-      });
-      modalBody.querySelectorAll('[data-suggest]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          addItem({ id: uid(), kind: 'medication', med: suggestions[Number(b.getAttribute('data-suggest'))] });
-        });
-      });
-      $('rtKind').addEventListener('change', function () { $('rtMed').hidden = $('rtKind').value === 'weight'; });
-      function addFromInputs() {
-        if ($('rtKind').value === 'weight') return addItem({ id: uid(), kind: 'weight' });
-        var name = $('rtMed').value.trim().replace(/\s+/g, ' ');
-        if (!name) return toast('Enter a medicine name');
-        addItem({ id: uid(), kind: 'medication', med: name });
-      }
-      $('rtAdd').addEventListener('click', addFromInputs);
-      $('rtMed').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addFromInputs(); } });
-      $('rtDone').addEventListener('click', closeModal);
-    }
-    draw();
-    openModal();
-  }
 
   // ===== SUGGESTIONS FOR MEDICINE AND FOOD NAMES =====
   // Offers names already used, most common first, in their most common
   // spelling, so "Famotidine" isn't split into "Famotadine" by a typo.
-  function topValues(field) {
+  function topValues(values) {
     var counts = {}, spellings = {};
-    state.records.forEach(function (r) {
-      var v = String(r[field] == null ? '' : r[field]).trim().replace(/\s+/g, ' ');
+    values.forEach(function (raw) {
+      var v = String(raw == null ? '' : raw).trim().replace(/\s+/g, ' ');
       if (!v) return;
       var k = v.toLowerCase();
       counts[k] = (counts[k] || 0) + 1;
@@ -1501,7 +1679,9 @@ h1 {
       });
   }
   function refreshSuggestions() {
-    var meds = topValues('med');
+    var names = [];
+    state.records.forEach(function (r) { r.meds.forEach(function (m) { names.push(m.name); }); });
+    var meds = topValues(names);
     // Include routine medicines so they're suggested even before first logged
     state.pets.forEach(function (p) {
       (p.routine || []).forEach(function (it) {
@@ -1509,34 +1689,73 @@ h1 {
       });
     });
     $('medOptions').innerHTML = meds.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
-    $('foodOptions').innerHTML = topValues('food').map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
+    $('foodOptions').innerHTML = topValues(state.records.map(function (r) { return r.food; }))
+      .map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
   }
 
-  // ===== LOG FORM: SHOW THE FIELDS THAT FIT THE LOG TYPE =====
-  // Note is always shown. Any field that already has a value (e.g. when
-  // editing an older log) stays visible so nothing is hidden or lost.
-  function updateFieldVisibility() {
-    // Kept inside the function: startup code runs before later variables are set.
-    var TYPE_FIELDS = {
-      weight: ['weight'],
-      meal: ['food'],
-      medication: ['med', 'cost'],
-      activity: ['activity', 'mood'],
-      symptom: ['mood'],
-      vomit: ['food'],
-      diarrhea: ['food'],
-      vet: ['weight', 'cost']
-    };
-    var FIELD_INPUTS = { weight: 'rWeight', med: 'rMed', food: 'rFood', activity: 'rActivity', mood: 'rMood', cost: 'rCost' };
-    var wanted = TYPE_FIELDS[$('rType').value] || [];
-    var hiddenCount = 0;
-    document.querySelectorAll('.type-fields [data-field]').forEach(function (el) {
-      var f = el.getAttribute('data-field');
-      var show = showAllFields || wanted.indexOf(f) >= 0 || $(FIELD_INPUTS[f]).value !== '';
-      el.hidden = !show;
-      if (!show) hiddenCount++;
+  // ===== LOG FORM: TAGS, MEDICINE ROWS, ★ TOGGLES =====
+  // The pet a log in the form belongs to: the one being edited, else the active pet.
+  function formPet() {
+    var r = editingLogId ? state.records.find(function (x) { return x.id === editingLogId; }) : null;
+    return r ? state.pets.find(function (p) { return p.id === r.petId; }) : activePet();
+  }
+  function addMedRow(name, note) {
+    var row = document.createElement('div');
+    row.className = 'med-row';
+    row.innerHTML =
+      '<input class="med-name" list="medOptions" placeholder="Medicine" aria-label="Medicine name" autocomplete="off">' +
+      '<button type="button" class="star" title="Give every day" aria-label="Give every day" aria-pressed="false">☆</button>' +
+      '<button type="button" class="remove-med" title="Remove" aria-label="Remove medicine">✕</button>' +
+      '<input class="med-note" placeholder="Dose / note (optional)" aria-label="Medicine note" autocomplete="off">';
+    var nameEl = row.querySelector('.med-name');
+    var noteEl = row.querySelector('.med-note');
+    nameEl.value = name || '';
+    noteEl.value = note || '';
+    nameEl.addEventListener('input', renderStars);
+    // Once a name is chosen, offer the dose used last time for it.
+    nameEl.addEventListener('change', function () {
+      if (noteEl.value) return;
+      var p = formPet();
+      if (!p) return;
+      var it = routineItemFor(p, 'medication', nameEl.value);
+      noteEl.value = (it && it.note) || lastMedNote(state.records, p.id, nameEl.value);
     });
-    $('moreFields').hidden = hiddenCount === 0;
+    row.querySelector('.star').addEventListener('click', function () {
+      toggleRoutine(formPet(), { kind: 'medication', med: nameEl.value, note: noteEl.value });
+    });
+    row.querySelector('.remove-med').addEventListener('click', function () { row.remove(); });
+    $('medRows').appendChild(row);
+    renderStars();
+    return row;
+  }
+  function readMedRows() {
+    var meds = [];
+    $('medRows').querySelectorAll('.med-row').forEach(function (row) {
+      var name = row.querySelector('.med-name').value.trim().replace(/\s+/g, ' ');
+      if (name) meds.push({ name: name, note: row.querySelector('.med-note').value.trim() });
+    });
+    return meds;
+  }
+  // ★ buttons show whether the form's pet already gets that item daily.
+  function renderStars() {
+    var p = formPet();
+    function set(btn, on) { btn.setAttribute('aria-pressed', on); btn.textContent = on ? '★' : '☆'; }
+    set($('starWeight'), !!(p && routineItemFor(p, 'weight')));
+    $('medRows').querySelectorAll('.med-row').forEach(function (row) {
+      set(row.querySelector('.star'), !!(p && routineItemFor(p, 'medication', row.querySelector('.med-name').value)));
+    });
+  }
+  function readTags() {
+    var tags = [];
+    $('rTags').querySelectorAll('.tag-chip').forEach(function (b) {
+      if (b.getAttribute('aria-pressed') === 'true') tags.push(b.getAttribute('data-tag'));
+    });
+    return tags;
+  }
+  function setTags(tags) {
+    $('rTags').querySelectorAll('.tag-chip').forEach(function (b) {
+      b.setAttribute('aria-pressed', tags.indexOf(b.getAttribute('data-tag')) >= 0);
+    });
   }
 
   // Latest weight, plus change over 30 days and since the first weigh-in.
@@ -1594,13 +1813,10 @@ h1 {
     function buildWeeklyBuckets(typeKeys, minWeeks) {
       var nowWeek = weekStartOf(today());
       var earliest = null;
-      typeKeys.forEach(function (t) {
-        rs.forEach(function (r) {
-          if (r.type === t) {
-            var ws = weekStartOf(r.date);
-            if (ws && (!earliest || ws < earliest)) earliest = ws;
-          }
-        });
+      rs.forEach(function (r) {
+        if (!typeKeys.some(function (t) { return hasTag(r, t); })) return;
+        var ws = weekStartOf(r.date);
+        if (ws && (!earliest || ws < earliest)) earliest = ws;
       });
       // If no events, use minWeeks back so the chart shows an empty baseline
       var fallbackStart = nowWeek;
@@ -1619,11 +1835,12 @@ h1 {
       typeKeys.forEach(function (t) {
         series[t] = weeks.map(function () { return 0; });
       });
+      // A log tagged with several types counts once in each series.
       rs.forEach(function (r) {
-        if (typeKeys.indexOf(r.type) === -1) return;
         var ws = weekStartOf(r.date);
         var idx = weeks.indexOf(ws);
-        if (idx >= 0) series[r.type][idx]++;
+        if (idx < 0) return;
+        typeKeys.forEach(function (t) { if (hasTag(r, t)) series[t][idx]++; });
       });
       return { weeks: weeks, series: series };
     }
@@ -1639,7 +1856,7 @@ h1 {
 
     if (mode === 'types') {
       var counts = {};
-      rs.forEach(function (r) { counts[label(r.type)] = (counts[label(r.type)] || 0) + 1; });
+      rs.forEach(function (r) { kindsOf(r).forEach(function (k) { counts[label(k)] = (counts[label(k)] || 0) + 1; }); });
       labels = Object.keys(counts);
       data = labels.map(function (k) { return counts[k]; });
       chartType = 'bar';
@@ -1991,26 +2208,31 @@ h1 {
       clearRecordForm();
       return toast('This log was deleted on another device');
     }
-    var record = {
-      id: editingLogId || uid(),
-      petId: existing ? existing.petId : activePetId,
-      date: $('rDate').value || today(),
-      type: $('rType').value,
-      mood: num($('rMood').value),
-      weight: num($('rWeight').value),
-      activity: num($('rActivity').value),
-      cost: num($('rCost').value),
-      food: $('rFood').value.trim(),
-      med: $('rMed').value.trim(),
-      note: $('rNote').value.trim()
-    };
-    // When it was logged, shown on the Today checklist. Edits keep the original.
-    if (existing) { if (existing.loggedAt) record.loggedAt = existing.loggedAt; }
-    else record.loggedAt = new Date().toISOString();
-    if (editingLogId) {
+    var record = blankRecord(existing ? existing.petId : activePetId, $('rDate').value || today());
+    record.id = editingLogId || record.id;
+    record.mood = num($('rMood').value);
+    record.weight = num($('rWeight').value);
+    record.activity = num($('rActivity').value);
+    record.cost = num($('rCost').value);
+    record.food = $('rFood').value.trim();
+    record.note = $('rNote').value.trim();
+    record.meds = readMedRows();
+    // Tags outside the chip set (kept from older data) survive an edit untouched.
+    record.tags = (existing ? existing.tags.filter(function (t) { return TAGS.indexOf(t) < 0; }) : []).concat(readTags());
+    if (isBlankRecord(record)) return toast('Enter something to log');
+    if (existing) {
+      // Keep when each medicine was given, if it's still on the log.
+      record.meds.forEach(function (m) {
+        var prev = existing.meds.find(function (x) { return x.at && normName(x.name) === normName(m.name); });
+        if (prev) m.at = prev.at;
+      });
+      if (existing.loggedAt) record.loggedAt = existing.loggedAt;
+      if (existing.sample) record.sample = true;
+      if (existing.routine) record.routine = true;
       state.records = state.records.map(function (r) { return r.id === editingLogId ? record : r; });
       toast('Log updated');
     } else {
+      record.loggedAt = new Date().toISOString();
       state.records.push(record);
       toast('Log added');
     }
@@ -2027,15 +2249,16 @@ h1 {
     editingLogId = id;
     $('rId').value = id;
     $('rDate').value = r.date;
-    $('rType').value = r.type;
     $('rMood').value = r.mood;
     $('rWeight').value = r.weight;
     $('rActivity').value = r.activity;
     $('rCost').value = r.cost;
     $('rFood').value = r.food || '';
-    $('rMed').value = r.med || '';
     $('rNote').value = r.note || '';
-    updateFieldVisibility();
+    setTags(r.tags);
+    $('medRows').innerHTML = '';
+    r.meds.forEach(function (m) { addMedRow(m.name, m.note); });
+    renderStars();
     $('formTitle').textContent = 'Edit log';
     $('formHint').textContent = 'Editing existing entry';
     $('submitBtn').textContent = 'Save changes';
@@ -2059,11 +2282,11 @@ h1 {
   function clearRecordForm() {
     editingLogId = null;
     $('rId').value = '';
-    ['rMood', 'rWeight', 'rActivity', 'rCost', 'rFood', 'rMed', 'rNote'].forEach(function (id) { $(id).value = ''; });
+    ['rMood', 'rWeight', 'rActivity', 'rCost', 'rFood', 'rNote'].forEach(function (id) { $(id).value = ''; });
     $('rDate').value = today();
-    $('rType').value = 'weight';
-    showAllFields = false;
-    updateFieldVisibility();
+    setTags([]);
+    $('medRows').innerHTML = '';
+    renderStars();
     $('formTitle').textContent = 'Add health log';
     $('formHint').textContent = 'All fields optional';
     $('submitBtn').textContent = 'Add log';
@@ -2076,10 +2299,11 @@ h1 {
   }
 
   function exportCsv() {
-    var rows = [['pet', 'species', 'breed', 'date', 'type', 'weight', 'mood', 'activity', 'cost', 'food', 'medication', 'note']];
+    var rows = [['pet', 'species', 'breed', 'date', 'types', 'weight', 'mood', 'activity', 'cost', 'food', 'medications', 'note']];
     state.records.forEach(function (r) {
       var p = state.pets.find(function (x) { return x.id === r.petId; }) || {};
-      rows.push([p.name || '', p.species || '', p.breed || '', r.date, r.type, r.weight, r.mood, r.activity, r.cost, r.food, r.med, r.note]);
+      var meds = r.meds.map(function (m) { return m.name + (m.note ? ' (' + m.note + ')' : ''); }).join('; ');
+      rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), r.weight, r.mood, r.activity, r.cost, r.food, meds, r.note]);
     });
     var csv = rows.map(function (row) {
       return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
@@ -2104,7 +2328,7 @@ h1 {
           $('fileInput').value = '';
           return;
         }
-        state = { pets: data.pets, records: data.records };
+        state = normalizeState(data);
         activePetId = state.pets[0] ? state.pets[0].id : null;
         save();
         render();
@@ -2184,7 +2408,12 @@ h1 {
   }
 
   function openModal() { modal.classList.add('open'); document.body.style.overflow = 'hidden'; }
-  function closeModal() { modal.classList.remove('open'); document.body.style.overflow = ''; modalBody.innerHTML = ''; }
+  function closeModal() {
+    // Commit any field still being typed in (e.g. a routine description) before
+    // the window's contents are removed. Browsers skip "change" on removed fields.
+    var active = document.activeElement;
+    if (active && modal.contains(active) && active.blur) active.blur();
+    modal.classList.remove('open'); document.body.style.overflow = ''; modalBody.innerHTML = ''; }
 
   // Re-apply panels on resize across desktop/mobile boundary
   var resizeT;
@@ -2200,12 +2429,69 @@ h1 {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return { pets: [], records: [] };
-      var parsed = JSON.parse(raw);
-      return {
-        pets: Array.isArray(parsed.pets) ? parsed.pets : [],
-        records: Array.isArray(parsed.records) ? parsed.records : []
-      };
+      return normalizeState(JSON.parse(raw));
     } catch (e) { return { pets: [], records: [] }; }
+  }
+
+  // ===== DATA SHAPE =====
+  // A log holds whatever happened: weight, mood, activity minutes, cost, food,
+  // any number of medicines (each with its own dose note) and event tags.
+  // Older logs had a single `type` and a single `med` string; they're converted
+  // on every read, so data written by an older copy of the app still loads.
+  function blankRecord(petId, date) {
+    return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', meds: [], tags: [], note: '' };
+  }
+  function normalizeRecord(raw) {
+    if (Number(raw && raw.v) > DATA_VERSION) newerDataSeen = true;
+    var r = Object.assign({}, raw);
+    ['weight', 'mood', 'activity', 'cost'].forEach(function (k) { if (r[k] == null) r[k] = ''; });
+    r.food = r.food == null ? '' : String(r.food);
+    r.note = r.note == null ? '' : String(r.note);
+    r.meds = (Array.isArray(r.meds) ? r.meds : []).filter(function (m) { return m && m.name; }).map(function (m) {
+      var out = { name: String(m.name), note: m.note == null ? '' : String(m.note) };
+      if (m.at) out.at = m.at;
+      return out;
+    });
+    if (r.med && !r.meds.length) r.meds.push({ name: String(r.med).trim(), note: '' });
+    var legacy = !Array.isArray(r.tags);
+    r.tags = legacy ? [] : r.tags.filter(function (t, i, a) { return typeof t === 'string' && a.indexOf(t) === i; });
+    if (legacy && r.type) {
+      // Event types become tags. A data type with no data behind it (e.g. an
+      // "activity" log that's only a note) is kept as a tag so it stays visible.
+      if (TAGS.indexOf(r.type) >= 0 || !kindsOf(r).length) r.tags.push(r.type);
+    }
+    delete r.type;
+    delete r.med;
+    if (!(Number(r.v) > DATA_VERSION)) r.v = DATA_VERSION;
+    return r;
+  }
+  function normalizeState(s) {
+    var st = {
+      pets: Array.isArray(s && s.pets) ? s.pets.filter(Boolean) : [],
+      records: Array.isArray(s && s.records) ? s.records.filter(Boolean).map(normalizeRecord) : []
+    };
+    // Routine items from before per-medicine notes: adopt the last dose used.
+    st.pets.forEach(function (p) {
+      if (!Array.isArray(p.routine)) return;
+      p.routine.forEach(function (it) {
+        if (it && it.kind !== 'weight' && typeof it.note !== 'string') it.note = lastMedNote(st.records, p.id, it.med);
+      });
+    });
+    return st;
+  }
+  function has(v) { return v !== '' && v != null; }
+  function hasTag(r, t) { return r.tags.indexOf(t) >= 0; }
+  // What a log is about, for pills and charts: its tags plus what its data implies.
+  function kindsOf(r) {
+    var k = r.tags.slice();
+    if (has(r.weight)) k.push('weight');
+    if (r.meds.length) k.push('medication');
+    if (r.food) k.push('meal');
+    if (has(r.activity) && k.indexOf('activity') < 0) k.push('activity');
+    return k;
+  }
+  function isBlankRecord(r) {
+    return !has(r.weight) && !has(r.mood) && !has(r.activity) && !has(r.cost) && !r.food && !r.meds.length && !r.tags.length && !r.note;
   }
   // ===== SAVING & CLOUD SYNC =====
   // Local storage is always written first, so nothing is lost if the cloud is
@@ -2217,15 +2503,20 @@ h1 {
   var writeSeq = 0;
 
   function writeLocal() {
+    if (newerDataSeen) return; // never overwrite data from a newer app version
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
     catch (e) { toast('Could not save — storage full?'); }
   }
   function save() {
+    if (newerDataSeen) {
+      render();
+      return toast('Not saved — reload the page to get the latest version first');
+    }
     writeLocal();
     pushToCloud();
   }
   function pushToCloud() {
-    if (!db || !syncCode) return;
+    if (!db || !syncCode || newerDataSeen) return;
     // Remember there are changes the cloud hasn't confirmed yet. This survives
     // the app being closed, so they're merged in next time instead of lost.
     try { localStorage.setItem(PENDING_KEY, '1'); } catch (e) {}
@@ -2291,26 +2582,40 @@ h1 {
     }
     render();
   }
-  function cleanState(d) {
-    return {
-      pets: Array.isArray(d && d.pets) ? d.pets : [],
-      records: Array.isArray(d && d.records) ? d.records : []
-    };
-  }
+  function cleanState(d) { return normalizeState(d); }
   // Combine two copies, keeping every pet and log from both. Where both have
   // the same item, this device's version wins.
   function mergeById(remote, local) {
-    function merge(a, b) {
+    function merge(a, b, combine) {
       var byId = {};
       var order = [];
       a.concat(b).forEach(function (item) {
         if (!item || !item.id) return;
-        if (!(item.id in byId)) order.push(item.id);
-        byId[item.id] = item;
+        if (!(item.id in byId)) { order.push(item.id); byId[item.id] = item; }
+        else byId[item.id] = combine ? combine(byId[item.id], item) : item;
       });
       return order.map(function (id) { return byId[id]; });
     }
-    return { pets: merge(remote.pets, local.pets), records: merge(remote.records, local.records) };
+    return { pets: merge(remote.pets, local.pets), records: merge(remote.records, local.records, mergeRecord) };
+  }
+  // The same log changed on two devices (e.g. both added to today's routine
+  // log while one was offline). Keep everything from both: every medicine and
+  // tag, and any field that one side left empty takes the other side's value.
+  function mergeRecord(remote, local) {
+    var out = Object.assign({}, remote, local);
+    ['weight', 'mood', 'activity', 'cost', 'food', 'note'].forEach(function (k) {
+      if (!has(local[k]) && has(remote[k])) out[k] = remote[k];
+    });
+    function medKey(m) { return (m.at || '') + '|' + normName(m.name); }
+    var seen = {};
+    out.meds = remote.meds.concat(local.meds).filter(function (m) {
+      var k = medKey(m);
+      if (seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
+    out.tags = remote.tags.concat(local.tags).filter(function (t, i, all) { return all.indexOf(t) === i; });
+    return out;
   }
   // True if this device holds anything besides the untouched demo data.
   function hasRealData() {
@@ -2337,18 +2642,18 @@ h1 {
   // data: it isn't uploaded to a new vault and doesn't block loading a code.
   function seed() {
     var p = { id: uid(), name: 'Felix', icon: '🐱', species: 'Cat', breed: 'Tuxedo', birthday: '2020-04-18', sample: true };
-    function r(date, type, fields) {
-      return Object.assign({ id: uid(), petId: p.id, date: date, type: type, weight: '', mood: '', activity: '', cost: '', food: '', med: '', note: '', sample: true }, fields);
+    function r(date, fields) {
+      return Object.assign(blankRecord(p.id, date), { sample: true }, fields);
     }
     state = {
       pets: [p],
       records: [
-        r('2026-04-12', 'vomit', { mood: 2, note: 'Once in the morning, hairball.' }),
-        r('2026-04-19', 'diarrhea', { mood: 2, food: 'New kibble', note: 'Started after switching brands.' }),
-        r('2026-04-21', 'vomit', { mood: 3, note: 'Ate too fast at dinner.' }),
-        r('2026-04-26', 'weight', { weight: 12.0, mood: 4, activity: 12, note: 'Normal appetite, playful.' }),
-        r('2026-04-28', 'medication', { mood: 3, activity: 5, med: 'Antibiotic', note: 'No side effects observed.' }),
-        r('2026-05-01', 'symptom', { mood: 3, activity: 8, note: 'Light sneezing during morning.' })
+        r('2026-04-12', { tags: ['vomit'], mood: 2, note: 'Once in the morning, hairball.' }),
+        r('2026-04-19', { tags: ['diarrhea'], mood: 2, food: 'New kibble', note: 'Started after switching brands.' }),
+        r('2026-04-21', { tags: ['vomit'], mood: 3, note: 'Ate too fast at dinner.' }),
+        r('2026-04-26', { weight: 12.0, mood: 4, activity: 12, note: 'Normal appetite, playful.' }),
+        r('2026-04-28', { mood: 3, activity: 5, meds: [{ name: 'Antibiotic', note: '1 tablet with food' }], note: 'No side effects observed.' }),
+        r('2026-05-01', { tags: ['symptom'], mood: 3, activity: 8, note: 'Light sneezing during morning.' })
       ]
     };
     writeLocal();
