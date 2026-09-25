@@ -3668,22 +3668,19 @@ body.vr-open { overflow: hidden; }
       var md = meds[k];
       var days = Object.keys(md.days).sort();
       var out = { name: md.name, dose: md.dose, changes: md.changes, daysGiven: days.length, first: days[0], last: days[days.length - 1] };
-      var daily = (pet.routine || []).some(function (it) { return isMedItem(it) && normName(it.med) === k; });
-      if (daily) {
-        // Count from the period start if it was already being given, otherwise from its first dose
-        var givenBefore = state.records.some(function (r) {
-          return r.petId === pet.id && r.date < from && r.meds.some(function (m) { return normName(m.name) === k; });
-        });
-        var start = givenBefore ? from : days[0];
-        var end = to < t ? to : t;
-        if (end === t && !md.days[t]) end = shiftDay(t, -1); // today isn't over yet
-        if (start <= end) {
-          var missed = [];
-          for (var d = start; d <= end; d = shiftDay(d, 1)) if (!md.days[d]) missed.push(d);
-          out.expected = dayCount(start, end);
-          out.given = out.expected - missed.length;
-          out.missed = missed;
-        }
+      // Given on X of Y days, and how often that is per week. Y counts from the
+      // period start if it was already being given, otherwise from its first dose.
+      // (No "missed" days: the app doesn't know the intended schedule.)
+      var givenBefore = state.records.some(function (r) {
+        return r.petId === pet.id && r.date < from && r.meds.some(function (m) { return normName(m.name) === k; });
+      });
+      var start = givenBefore ? from : days[0];
+      var end = to < t ? to : t;
+      if (end === t && !md.days[t]) end = shiftDay(t, -1); // today isn't over yet
+      if (start <= end) {
+        out.span = dayCount(start, end);
+        out.given = days.filter(function (d) { return d >= start && d <= end; }).length;
+        out.perWeek = out.given / out.span * 7;
       }
       return out;
     });
@@ -3721,7 +3718,39 @@ body.vr-open { overflow: hidden; }
     var sizes = { big: 0, decent: 0, short: 0, tiny: 0 };
     playLogs.forEach(function (r) { if (sizes[r.playSize] !== undefined) sizes[r.playSize]++; });
 
+    // Food: what was fed, in order, with each change of food starting a new line
+    var foods = [];
+    recs.forEach(function (r) {
+      if (!r.food) return;
+      var last = foods[foods.length - 1];
+      if (last && normName(last.food) === normName(r.food)) { last.to = r.date; last.days[r.date] = true; }
+      else foods.push({ food: r.food, from: r.date, to: r.date, days: (function () { var o = {}; o[r.date] = true; return o; })() });
+    });
+    foods.forEach(function (f) { f.dayCount = Object.keys(f.days).length; delete f.days; });
+
+    // Mood: average, and the lowest days
+    var moods = recs.filter(function (r) { return has(r.mood) && isFinite(Number(r.mood)); })
+      .map(function (r) { return { date: r.date, value: Number(r.mood) }; });
+    var mood = null;
+    if (moods.length) {
+      var lowest = Math.min.apply(null, moods.map(function (m) { return m.value; }));
+      mood = {
+        count: moods.length,
+        average: moods.reduce(function (a, m) { return a + m.value; }, 0) / moods.length,
+        lowest: lowest,
+        lowestDates: moods.filter(function (m) { return m.value === lowest; }).map(function (m) { return m.date; })
+      };
+    }
+
+    // Vet visits by type
+    var visits = recs.filter(function (r) { return hasTag(r, 'vet'); });
+
     return {
+      foods: foods,
+      mood: mood,
+      visits: { count: visits.length, types: countLabels(visits.map(function (r) { return VET_TYPES[r.vetType] || ''; }).filter(Boolean)) },
+      vomitLabels: countLabels([].concat.apply([], recs.filter(function (r) { return hasTag(r, 'vomit'); }).map(function (r) { return r.vomitKinds || []; }))),
+      stoolLabels: countLabels([].concat.apply([], recs.filter(function (r) { return hasTag(r, 'stool'); }).map(function (r) { return r.stoolKinds || []; }))),
       symptomCount: symptomLogs.length,
       symptomLabels: countLabels([].concat.apply([], symptomLogs.map(function (r) { return r.symptoms || []; }))),
       play: {
@@ -3747,7 +3776,12 @@ body.vr-open { overflow: hidden; }
     // Pet and period
     h += '<header class="vr-head"><h1>Health summary: ' + esc(p.name) + '</h1>' +
       '<p>' + esc((p.species || 'Pet') + (p.breed ? ' · ' + p.breed : '') + age(p.birthday)) + '</p>' +
-      '<p class="vr-muted">' + esc(formatDate(sum.from)) + ' – ' + esc(formatDate(sum.to)) + ' (' + sum.days + ' days) · Weights in ' + esc(weightUnitName(unit)) + '</p></header>';
+      '<p class="vr-muted">' + esc(formatDate(sum.from)) + ' – ' + esc(formatDate(sum.to)) + ' (' + sum.days + ' days) · Weights in ' + esc(weightUnitName(unit)) + '</p>' +
+      (sum.visits.count
+        ? '<p>Vet visits in this period: <b>' + sum.visits.count + '</b>' +
+          (sum.visits.types.length ? ' (' + sum.visits.types.map(function (v) { return esc(v.name) + ' ' + v.count; }).join(', ') + ')' : '') + '</p>'
+        : '') +
+      '</header>';
 
     // Weight
     h += '<section><h2>Weight</h2>';
@@ -3771,10 +3805,10 @@ body.vr-open { overflow: hidden; }
       h += '<div class="vr-scroll"><table><tr><th>Medicine</th><th>Latest dose</th><th>Given</th><th>Dose changes</th></tr>' +
         sum.medicines.map(function (m) {
           var given;
-          if (m.expected) {
-            given = m.given + ' of ' + m.expected + ' days';
-            if (m.missed.length && m.missed.length <= 6) given += '<div class="vr-muted">Missed: ' + m.missed.map(function (d) { return esc(shortDate(d)); }).join(', ') + '</div>';
-            else if (m.missed.length) given += '<div class="vr-muted">' + m.missed.length + ' days missed</div>';
+          if (m.span) {
+            var pw = Math.round(m.perWeek * 10) / 10;
+            given = m.given + ' of ' + m.span + ' days' +
+              '<div class="vr-muted">' + (pw < 1 ? 'Less than once a week' : pw === 1 ? 'About once a week' : 'About ' + trimNum(pw, 1) + ' times a week') + '</div>';
           } else {
             given = m.daysGiven + (m.daysGiven === 1 ? ' day' : ' days') +
               '<div class="vr-muted">' + esc(shortDate(m.first)) + (m.last !== m.first ? ' – ' + esc(shortDate(m.last)) : '') + '</div>';
@@ -3792,7 +3826,9 @@ body.vr-open { overflow: hidden; }
     // Vomiting and diarrhea
     h += '<section><h2>Vomiting and stool</h2>';
     if (sum.vomit.length || sum.stool.length) {
-      h += '<p>Vomiting: <b>' + sum.vomit.length + '</b> · Diarrhea: <b>' + sum.diarrhea.length + '</b> · Stool logs: <b>' + sum.stool.length + '</b></p>' +
+      var breakdown = function (list) { return list.length ? ' (' + list.map(function (l) { return esc(l.name) + ' ' + l.count; }).join(' · ') + ')' : ''; };
+      h += '<p>Vomiting: <b>' + sum.vomit.length + '</b>' + breakdown(sum.vomitLabels) + '</p>' +
+        '<p>Stool logs: <b>' + sum.stool.length + '</b>' + breakdown(sum.stoolLabels) + '</p>' +
         '<div class="vr-scroll"><table><tr><th>Date</th><th>Episode</th><th>Note</th></tr>' +
         sum.vomit.map(function (e) { return { date: e.date, what: 'Vomiting', labels: e.labels, note: e.note }; })
           .concat(sum.stool.map(function (e) { return { date: e.date, what: 'Stool', labels: e.labels, note: e.note }; }))
@@ -3807,6 +3843,27 @@ body.vr-open { overflow: hidden; }
       h += '<p class="vr-muted">None logged in this period.</p>';
     }
     h += '</section>';
+
+    // Food
+    h += '<section><h2>Food</h2>';
+    if (sum.foods.length) {
+      h += '<div class="vr-scroll"><table><tr><th>Food</th><th>Dates</th><th>Days logged</th></tr>' +
+        sum.foods.map(function (f) {
+          return '<tr><td>' + esc(f.food) + '</td><td>' + esc(shortDate(f.from)) + (f.to !== f.from ? ' – ' + esc(shortDate(f.to)) : '') + '</td><td>' + f.dayCount + '</td></tr>';
+        }).join('') + '</table></div>';
+      if (sum.foods.length > 1) h += '<p class="vr-muted">Each line is a change of food, in order.</p>';
+    } else {
+      h += '<p class="vr-muted">No food logged in this period.</p>';
+    }
+    h += '</section>';
+
+    // Mood
+    if (sum.mood) {
+      var mo = sum.mood;
+      h += '<section><h2>Mood</h2><p>Average <b>' + trimNum(mo.average, 1) + '</b> of 5 over ' + mo.count + (mo.count === 1 ? ' rating' : ' ratings') +
+        ' · Lowest ' + mo.lowest + ' (' + mo.lowestDates.slice(0, 4).map(function (d) { return esc(shortDate(d)); }).join(', ') +
+        (mo.lowestDates.length > 4 ? ' and ' + (mo.lowestDates.length - 4) + ' more' : '') + ')</p></section>';
+    }
 
     // Play
     if (sum.play.sessions) {

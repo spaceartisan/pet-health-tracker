@@ -896,7 +896,7 @@ async function vetSummary() {
   check('no dose change inside this period', medRow('Famotidine').textContent.includes('None'));
   const vomits = sampleOf((r) => r.type === 'vomit' && inRange('2026-06-27', '2026-09-24')(r)).length;
   check('vomiting count', text().includes('Vomiting: ' + vomits), vomits);
-  check('another pet\'s diarrhea is not included', text().includes('Diarrhea: 0'));
+  check('another pet\'s diarrhea is not included', text().includes('Stool logs: 0') && !/Diarrhea \d/.test(text()));
   const noteRows = sampleOf((r) => ['symptom', 'activity'].includes(r.type) && inRange('2026-06-27', '2026-09-24')(r)).length;
   const sections = [...report().querySelectorAll('section')];
   const notesSection = sections.find((sec) => sec.querySelector('h2').textContent === 'Symptoms and notes');
@@ -942,7 +942,7 @@ async function vetSummary() {
   check('"since last vet visit" is offered and chosen', A.$('vsPeriod').value === 'vet' && A.$('vsPeriod').options[0].textContent.includes('Aug 15, 2026'));
   A.$('vsPeriod').value = '90';
   A.click('vsCreate');
-  check('missed doses counted and listed', medRow('Famotidine').textContent.includes('87 of 89 days') && /Missed: Aug 10, Aug 11/.test(medRow('Famotidine').textContent), medRow('Famotidine').textContent);
+  check('days given counted, with a weekly average', medRow('Famotidine').textContent.includes('87 of 89 days') && /About 6\.8 times a week/.test(medRow('Famotidine').textContent), medRow('Famotidine').textContent);
   check('vet visit appears in the notes', text().includes('Annual checkup, all good'));
   A.click('vrClose');
   A.click('vetSummaryBtn'); A.click('vsCreate');
