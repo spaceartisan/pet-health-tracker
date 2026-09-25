@@ -28,7 +28,7 @@ You'll see one line per group, desktop and mobile layouts:
 PASS Sync  24/24
 PASS Routine  18/18
 ...
-All 283 checks passed.
+All 313 checks passed.
 ```
 
 If anything fails, it lists which check and what it found instead. Don't push until it passes, or until you've confirmed the failure is expected (see below).
@@ -52,7 +52,7 @@ If anything fails, it lists which check and what it found instead. Don't push un
 | Everyday | Evening dates, stored text shown safely, editing logs |
 | Routine | Suggestions, stars, Log all, weigh-ins, Undo, form logs ticking the checklist |
 | Doses | Default doses, per-log edits, typing while another device syncs, "stop daily" |
-| Charts | Daily weights, 7-day average, summary, vomit per week |
+| Charts | Points placed by date, time ranges, daily weights, 7-day average, summary, vomit per week |
 | Update protection | Save stamps, refused outdated copies, reload banner, newer data formats |
 | Themes | Picking, saving and loading themes; chart colors follow the theme; every theme color is defined |
 | Vet summary | Periods, weight change, doses and dose changes, missed doses, episodes, notes, units, full log, printing, no vault code |

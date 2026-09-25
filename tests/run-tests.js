@@ -653,32 +653,73 @@ async function doses() {
 // =====================================================================
 async function charts() {
   resetServer({ [CODE]: vault(CODE) });
-  const A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
+  let A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
   await settle();
-  // Independent calculation from the sample data
+  const dn = (d) => { const p = d.split('-'); return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 864e5); };
+  const setRange = (v) => { A.$('chartRange').value = v; A.$('chartRange').dispatchEvent(new A.w.Event('change')); return A.w.__chart; };
+  // Independent calculation from the sample data (all history)
   const byDay = {};
   SAMPLE[CODE].records.filter((r) => r.petId === 'p-pepper' && r.weight !== '' && r.weight != null)
     .sort((a, b) => a.date.localeCompare(b.date)).forEach((r) => { byDay[r.date] = Number(r.weight); });
   const days = Object.keys(byDay).sort();
   const vals = days.map((d) => byDay[d]);
-  const dayNum = (s) => Date.parse(s + 'T12:00:00Z') / 864e5;
-  const avg = days.map((d, i) => {
-    const inWeek = days.map((x, j) => [x, vals[j]]).filter(([x]) => dayNum(d) - dayNum(x) >= 0 && dayNum(d) - dayNum(x) <= 6);
+  const avg = days.map((d) => {
+    const inWeek = days.map((x, j) => [x, vals[j]]).filter(([x]) => dn(d) - dn(x) >= 0 && dn(d) - dn(x) <= 6);
     return Math.round(inWeek.reduce((s, [, v]) => s + v, 0) / inWeek.length * 100) / 100;
   });
-  const cfg = A.chart('weight');
-  const sets = cfg.data.datasets;
-  check('weight: one point per day', cfg.data.labels.length === days.length, [cfg.data.labels.length, days.length]);
-  check('weight: daily values correct', JSON.stringify(sets[0].data) === JSON.stringify(vals));
-  check('weight: 7-day average correct', sets[1] && JSON.stringify(sets[1].data) === JSON.stringify(avg));
-  const summary = A.$('chartSummary').textContent;
-  check('weight: summary shows latest, 30-day and since-start', summary.includes(String(vals[vals.length - 1])) && /30 days/.test(summary) && /Since /.test(summary), summary);
-  const vomits = SAMPLE[CODE].records.filter((r) => r.petId === 'p-pepper' && r.type === 'vomit').length;
-  const v = A.chart('vomit-weekly');
-  const total = v.data.datasets[0].data.reduce((s, n) => s + n, 0);
-  check('vomit per week: every episode counted', total === vomits, [total, vomits]);
+
+  check('90 days is the default range', A.$('chartRange').value === '90');
+
+  // All time
+  A.chart('weight');
+  let cfg = setRange('all');
+  let sets = cfg.data.datasets;
+  check('weight: one point per day', sets[0].data.length === days.length, [sets[0].data.length, days.length]);
+  check('weight: daily values correct', JSON.stringify(sets[0].data.map((p) => p.y)) === JSON.stringify(vals));
+  check('weight: 7-day average correct', sets[1] && JSON.stringify(sets[1].data.map((p) => p.y)) === JSON.stringify(avg));
+  const gap = sets[0].data[1].x - sets[0].data[0].x;
+  check('points are placed by date: a 13-month gap is 13 months wide', gap === dn('2026-04-01') - dn('2025-02-21') && sets[0].data[2].x - sets[0].data[1].x === 1, gap);
+  const x = cfg.options.scales.x;
+  check('the x axis is a date axis', x.type === 'linear' && /Apr/.test(x.ticks.callback(dn('2026-04-01'))));
+  check('dates show the year when the chart spans years', /2026/.test(x.ticks.callback(dn('2026-04-01'))));
+  const tip = cfg.options.plugins.tooltip.callbacks.title([{ parsed: { x: dn('2026-09-23') } }]);
+  check('tooltips show the full date', /Sep/.test(tip) && /23/.test(tip) && /2026/.test(tip), tip);
+  let summary = A.$('chartSummary').textContent;
+  check('all time: summary shows latest, 30-day and since-start', summary.includes(String(vals[vals.length - 1])) && /30 days/.test(summary) && /Since Feb 21, 2025/.test(summary), summary);
+
+  // 90 days
+  cfg = setRange('90');
+  sets = cfg.data.datasets;
+  const from = '2026-06-27';
+  const inRange = days.filter((d) => d >= from);
+  check('90 days: only the last 90 days are shown', sets[0].data.length === inRange.length && sets[0].data.every((p) => p.x >= dn(from)), [sets[0].data.length, inRange.length]);
+  check('90 days: the axis spans the whole range', cfg.options.scales.x.min === dn(from) && cfg.options.scales.x.max === dn(TODAY));
+  check('90 days: no year on the dates', !/2026/.test(cfg.options.scales.x.ticks.callback(dn('2026-08-01'))));
+  const firstIdx = days.indexOf(inRange[0]);
+  check('90 days: the average at the start still uses the days before it', sets[1].data[0].y === avg[firstIdx]);
+  summary = A.$('chartSummary').textContent;
+  check('90 days: the summary follows the range', /Since Jun 27, 2026/.test(summary), summary);
+  check('the range is remembered on this device', A.storage()['petHealth.chartRange'] === '90');
+
+  // Other charts follow the range too
+  const moodCfg = A.chart('mood');
+  check('mood: placed by date', moodCfg.options.scales.x.type === 'linear' && moodCfg.data.datasets[0].data.every((p) => typeof p.x === 'number'));
+  const vomitsAll = SAMPLE[CODE].records.filter((r) => r.petId === 'p-pepper' && r.type === 'vomit');
+  const total = (c) => c.data.datasets[0].data.reduce((s, n) => s + n, 0);
+  let v = A.chart('vomit-weekly');
+  const inWindow = vomitsAll.filter((r) => r.date >= '2026-06-22').length; // from the Monday of the range's first week
+  check('vomit per week: counts episodes in the range', total(v) === inWindow, [total(v), inWindow]);
+  v = setRange('all');
+  check('vomit per week: all time counts every episode', total(v) === vomitsAll.length, [total(v), vomitsAll.length]);
+  setRange('30');
   A.chart('mood');
   check('summary hidden for other charts', A.$('chartSummary').textContent === '');
+  const st = A.storage();
+  A.close();
+  A = openApp(makeClient('b'), st);
+  await settle();
+  check('the saved range is used after reopening', A.$('chartRange').value === '30');
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
   A.close();
 }
 
