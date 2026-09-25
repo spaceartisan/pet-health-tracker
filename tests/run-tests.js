@@ -293,6 +293,16 @@ async function setupChecks() {
     notes.push('firestore.rules minVersion (' + RULES.minVersion + ') is below DATA_VERSION (' + DATA_VERSION + '). ' +
       'Once this version is live on GitHub Pages, raise minVersion to ' + DATA_VERSION + ' and publish the rules.');
   }
+  // Every theme color the CSS uses is defined, and themes only override real ones
+  const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+  const rootBlock = (css.match(/:root\s*\{([\s\S]*?)\n\}/) || [])[1] || '';
+  const defined = new Set([...rootBlock.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
+  const used = new Set([...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]));
+  const undefinedVars = [...used].filter((v) => !defined.has(v));
+  check('every color the CSS uses is defined', undefinedVars.length === 0, undefinedVars);
+  const themeBlocks = [...css.matchAll(/:root\[data-theme="([\w-]+)"\]\s*\{([\s\S]*?)\n\}/g)];
+  const unknown = themeBlocks.flatMap(([, name, body]) => [...body.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]).filter((v) => !defined.has(v)).map((v) => name + ' ' + v));
+  check('themes only override colors that exist', themeBlocks.length > 0 && unknown.length === 0, unknown);
   const writesStamp = /_v:\s*DATA_VERSION,\s*_w:/.test(html);
   check('rules allow the fields the app saves', !writesStamp || (RULES.fields.includes('_v') && RULES.fields.includes('_w')), RULES.fields);
 }
@@ -738,6 +748,50 @@ async function updates() {
 }
 
 // =====================================================================
+// THEMES
+// =====================================================================
+async function themes() {
+  resetServer({ [CODE]: vault(CODE) });
+  let A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
+  await settle();
+  const root = () => A.d.documentElement.getAttribute('data-theme');
+  const meta = () => A.d.querySelector('meta[name="theme-color"]').getAttribute('content');
+  check('default theme when nothing is saved', !root());
+  A.click('themeBtn');
+  const options = [...A.d.querySelectorAll('[data-theme-id]')];
+  check('picker lists Garden, Night and Ocean', options.map((o) => o.getAttribute('data-theme-id')).join() === 'garden,night,ocean');
+  check('current theme is marked', options[0].getAttribute('aria-pressed') === 'true');
+  A.chart('weight');
+  const gardenAccent = A.w.__chart.data.datasets[0].pointBackgroundColor;
+  A.d.querySelector('[data-theme-id="night"]').click(); await settle();
+  check('choosing Night applies it', root() === 'night');
+  check('Night is saved on this device', A.storage()['petHealth.theme'] === 'night');
+  check('phone status bar color follows the theme', meta() === '#171614', meta());
+  check('chart redraws in the theme\'s colors', A.w.__chart.data.datasets[0].pointBackgroundColor === '#8db27a' && gardenAccent === '#6b8e5a',
+    [gardenAccent, A.w.__chart.data.datasets[0].pointBackgroundColor]);
+  check('picker marks Night as current', A.d.querySelector('[data-theme-id="night"]').getAttribute('aria-pressed') === 'true');
+  A.addLog('logged in night theme'); await settle();
+  check('the theme isn\'t saved to the shared vault', !JSON.stringify(server.docs[CODE]).includes('night') || !('theme' in server.docs[CODE]));
+  const st = A.storage();
+  A.close();
+
+  A = openApp(makeClient('b'), st);
+  check('saved theme is applied as the page opens', A.d.documentElement.getAttribute('data-theme') === 'night');
+  await settle();
+  check('...and the status bar matches', A.d.querySelector('meta[name="theme-color"]').getAttribute('content') === '#171614');
+  A.click('themeBtn');
+  A.d.querySelector('[data-theme-id="ocean"]').click(); await settle();
+  check('switching to Ocean', root() === 'ocean' && A.storage()['petHealth.theme'] === 'ocean');
+  A.d.querySelector('[data-theme-id="garden"]').click(); await settle();
+  check('back to Garden removes the theme', !root() && A.storage()['petHealth.theme'] === 'garden');
+  A.click('modalClose');
+  A.click('mobileFab');
+  check('theme picker is in the phone menu too', !!A.$('miTheme'));
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+}
+
+// =====================================================================
 // PREVIOUS VERSION (optional): old and new copies of the app together
 // =====================================================================
 async function previousVersion() {
@@ -786,6 +840,7 @@ async function previousVersion() {
     await runGroup('Doses' + tag, doses);
     await runGroup('Charts' + tag, charts);
     await runGroup('Update protection' + tag, updates);
+    await runGroup('Themes' + tag, themes);
     if (PREVIOUS_HTML) await runGroup('Previous version' + tag, previousVersion);
   }
   let pass = 0, total = 0;

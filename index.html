@@ -32,6 +32,50 @@
   --amber: #b8821a;
   --amber-soft: #f3ead0;
   --danger: #b53a2c;
+  /* Theme colors used across the app. Garden (this block) is the default;
+     Night and Ocean below override them. */
+  --field: #ffffff;
+  --on-accent: #ffffff;
+  --ink-hover: #2c2925;
+  --sage-hover: #5d7d4f;
+  --sage-deep: #527a45;
+  --sage-line: rgba(107, 142, 90, .35);
+  --sage-ink: #2d4520;
+  --terra-hover: #ad563a;
+  --amber-ink: #5e430c;
+  --amber-line: #e6d3a0;
+  --danger-hover: #9c3327;
+  --danger-soft: #fbeae7;
+  --danger-line: #f0c8c0;
+  --focus-ring: rgba(107, 142, 90, .15);
+  --nav-bg: rgba(255, 255, 255, .92);
+  --glow-a: rgba(107, 142, 90, .12);
+  --glow-b: rgba(194, 97, 63, .10);
+  --pill-weight-bg: #e8efe1;     --pill-weight-fg: #3d5d2c;
+  --pill-meal-bg: #f3ead0;       --pill-meal-fg: #6b4d10;
+  --pill-medication-bg: #f5e3da; --pill-medication-fg: #7d3a23;
+  --pill-activity-bg: #e0eaf5;   --pill-activity-fg: #2c4566;
+  --pill-symptom-bg: #f5dfdf;    --pill-symptom-fg: #802424;
+  --pill-vet-bg: #ebe2f2;        --pill-vet-fg: #4d2e6b;
+  --pill-vomit-bg: #f1d9c8;      --pill-vomit-fg: #6e3315;
+  --pill-diarrhea-bg: #ead9bc;   --pill-diarrhea-fg: #5e3f0b;
+  /* Chart colors (read by the chart code) */
+  --chart-accent: #6b8e5a;
+  --chart-accent-fill: rgba(107, 142, 90, .12);
+  --chart-accent-bar: rgba(107, 142, 90, .8);
+  --chart-accent-soft: rgba(107, 142, 90, .45);
+  --chart-accent-faint: rgba(107, 142, 90, .08);
+  --chart-avg: #c2613f;
+  --chart-vomit: rgba(194, 97, 63, .85);
+  --chart-vomit-line: #c2613f;
+  --chart-diarrhea: rgba(146, 99, 22, .85);
+  --chart-diarrhea-line: #926316;
+  --chart-text: #8a8278;
+  --chart-legend: #4a4640;
+  --chart-grid: #e3dccc;
+  --chart-tooltip: #1f1d1a;
+  --chart-tooltip-text: #ffffff;
+  --chart-point-border: #ffffff;
   --shadow-sm: 0 1px 2px rgba(31, 29, 26, .04), 0 2px 6px rgba(31, 29, 26, .04);
   --shadow-md: 0 2px 4px rgba(31, 29, 26, .04), 0 12px 28px rgba(31, 29, 26, .08);
   --shadow-lg: 0 4px 8px rgba(31, 29, 26, .06), 0 24px 48px rgba(31, 29, 26, .12);
@@ -56,8 +100,8 @@ body {
   line-height: 1.5;
   color: var(--ink);
   background:
-    radial-gradient(ellipse at 10% -10%, rgba(107, 142, 90, .12), transparent 50%),
-    radial-gradient(ellipse at 110% 0%, rgba(194, 97, 63, .10), transparent 50%),
+    radial-gradient(ellipse at 10% -10%, var(--glow-a), transparent 50%),
+    radial-gradient(ellipse at 110% 0%, var(--glow-b), transparent 50%),
     var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -77,13 +121,13 @@ button {
   font-weight: 600;
   font-size: 14px;
   letter-spacing: -.005em;
-  color: white;
+  color: var(--on-accent);
   background: var(--ink);
   cursor: pointer;
   transition: transform .08s ease, background .15s ease, box-shadow .15s ease;
   -webkit-tap-highlight-color: transparent;
 }
-button:hover { background: #2c2925; }
+button:hover { background: var(--ink-hover); }
 button:active { transform: translateY(1px); }
 button:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
 
@@ -92,18 +136,18 @@ button.secondary:hover { background: var(--line-2); }
 button.ghost { background: transparent; color: var(--ink-2); }
 button.ghost:hover { background: var(--bg-2); }
 button.sage { background: var(--sage); }
-button.sage:hover { background: #5d7d4f; }
+button.sage:hover { background: var(--sage-hover); }
 button.terra { background: var(--terra); }
-button.terra:hover { background: #ad563a; }
+button.terra:hover { background: var(--terra-hover); }
 button.danger { background: var(--danger); }
-button.danger:hover { background: #9c3327; }
+button.danger:hover { background: var(--danger-hover); }
 button.tiny { min-height: 32px; padding: 6px 10px; font-size: 12px; border-radius: 8px; }
 
 input, select, textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: white;
+  background: var(--field);
   padding: 10px 12px;
   font-size: 15px;
   outline: none;
@@ -114,7 +158,7 @@ input, select, textarea {
 textarea { min-height: 76px; resize: vertical; line-height: 1.4; }
 input:focus, select:focus, textarea:focus {
   border-color: var(--sage);
-  box-shadow: 0 0 0 3px rgba(107, 142, 90, .15);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 input[type="date"] { -webkit-appearance: none; appearance: none; }
 
@@ -158,8 +202,8 @@ label.field {
   border-radius: 14px;
   display: grid;
   place-items: center;
-  background: linear-gradient(140deg, var(--sage) 0%, #527a45 100%);
-  color: white;
+  background: linear-gradient(140deg, var(--sage) 0%, var(--sage-deep) 100%);
+  color: var(--on-accent);
   font-size: 24px;
   box-shadow: var(--shadow-md);
   flex: 0 0 auto;
@@ -232,7 +276,7 @@ h1 {
 .pet-row:hover { background: var(--bg); }
 .pet-row.active {
   background: var(--sage-soft);
-  border-color: rgba(107, 142, 90, .35);
+  border-color: var(--sage-line);
 }
 .pet-avatar {
   width: 40px; height: 40px;
@@ -243,7 +287,7 @@ h1 {
   font-size: 22px;
   flex: 0 0 auto;
 }
-.pet-row.active .pet-avatar { background: white; }
+.pet-row.active .pet-avatar { background: var(--field); }
 .pet-row b {
   font-size: 14px;
   font-weight: 600;
@@ -327,7 +371,7 @@ h1 {
 }
 .hero-name .edit-pet:hover { background: var(--bg); color: var(--ink); }
 .hero-name .edit-pet.danger-action { color: var(--danger); }
-.hero-name .edit-pet.danger-action:hover { background: #fbeae7; color: var(--danger); border-color: #f0c8c0; }
+.hero-name .edit-pet.danger-action:hover { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
 .hero-meta { font-size: 14px; color: var(--muted); margin-top: 4px; }
 
 .stats {
@@ -369,7 +413,7 @@ h1 {
   border-radius: var(--radius);
   padding: 14px 16px;
   font-size: 13px;
-  color: #2d4520;
+  color: var(--sage-ink);
   line-height: 1.55;
 }
 .care-note b {
@@ -482,14 +526,14 @@ h1 {
   background: var(--bg-2);
   color: var(--ink-2);
 }
-.type-pill.weight { background: var(--sage-soft); color: #3d5d2c; }
-.type-pill.meal { background: var(--amber-soft); color: #6b4d10; }
-.type-pill.medication { background: var(--terra-soft); color: #7d3a23; }
-.type-pill.activity { background: #e0eaf5; color: #2c4566; }
-.type-pill.symptom { background: #f5dfdf; color: #802424; }
-.type-pill.vet { background: #ebe2f2; color: #4d2e6b; }
-.type-pill.vomit { background: #f1d9c8; color: #6e3315; }
-.type-pill.diarrhea { background: #ead9bc; color: #5e3f0b; }
+.type-pill.weight { background: var(--pill-weight-bg); color: var(--pill-weight-fg); }
+.type-pill.meal { background: var(--pill-meal-bg); color: var(--pill-meal-fg); }
+.type-pill.medication { background: var(--pill-medication-bg); color: var(--pill-medication-fg); }
+.type-pill.activity { background: var(--pill-activity-bg); color: var(--pill-activity-fg); }
+.type-pill.symptom { background: var(--pill-symptom-bg); color: var(--pill-symptom-fg); }
+.type-pill.vet { background: var(--pill-vet-bg); color: var(--pill-vet-fg); }
+.type-pill.vomit { background: var(--pill-vomit-bg); color: var(--pill-vomit-fg); }
+.type-pill.diarrhea { background: var(--pill-diarrhea-bg); color: var(--pill-diarrhea-fg); }
 .record-date { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .record-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .metrics {
@@ -500,7 +544,7 @@ h1 {
 }
 .badge {
   border-radius: 999px;
-  background: white;
+  background: var(--field);
   border: 1px solid var(--line);
   color: var(--ink-2);
   padding: 4px 10px;
@@ -612,7 +656,7 @@ h1 {
   bottom: calc(20px + var(--safe-bottom));
   transform: translateX(-50%) translateY(20px);
   background: var(--ink);
-  color: white;
+  color: var(--on-accent);
   border-radius: 999px;
   padding: 12px 20px;
   font-size: 13px;
@@ -712,7 +756,7 @@ h1 {
     bottom: 0;
     left: 0;
     right: 0;
-    background: rgba(255, 255, 255, .92);
+    background: var(--nav-bg);
     -webkit-backdrop-filter: saturate(180%) blur(14px);
     backdrop-filter: saturate(180%) blur(14px);
     border-top: 1px solid var(--line);
@@ -751,7 +795,7 @@ h1 {
     height: 48px;
     border-radius: 999px;
     background: var(--ink);
-    color: white;
+    color: var(--on-accent);
     box-shadow: var(--shadow-lg);
     z-index: 99;
     min-height: 48px;
@@ -791,7 +835,7 @@ h1 {
   width: 32px; height: 32px;
   display: grid; place-items: center;
   border-radius: 10px;
-  background: white;
+  background: var(--field);
   font-size: 16px;
   flex: 0 0 auto;
 }
@@ -817,16 +861,16 @@ h1 {
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-chip {
   min-height: 34px; padding: 6px 12px; border-radius: 999px;
-  background: white; color: var(--ink-2); border: 1px solid var(--line-2);
+  background: var(--field); color: var(--ink-2); border: 1px solid var(--line-2);
   font-size: 13px; font-weight: 500;
 }
 .tag-chip:hover { background: var(--bg); }
 .tag-chip[aria-pressed="true"] { border-color: transparent; font-weight: 600; }
-.tag-chip.symptom[aria-pressed="true"] { background: #f5dfdf; color: #802424; }
-.tag-chip.vomit[aria-pressed="true"] { background: #f1d9c8; color: #6e3315; }
-.tag-chip.diarrhea[aria-pressed="true"] { background: #ead9bc; color: #5e3f0b; }
-.tag-chip.activity[aria-pressed="true"] { background: #e0eaf5; color: #2c4566; }
-.tag-chip.vet[aria-pressed="true"] { background: #ebe2f2; color: #4d2e6b; }
+.tag-chip.symptom[aria-pressed="true"] { background: var(--pill-symptom-bg); color: var(--pill-symptom-fg); }
+.tag-chip.vomit[aria-pressed="true"] { background: var(--pill-vomit-bg); color: var(--pill-vomit-fg); }
+.tag-chip.diarrhea[aria-pressed="true"] { background: var(--pill-diarrhea-bg); color: var(--pill-diarrhea-fg); }
+.tag-chip.activity[aria-pressed="true"] { background: var(--pill-activity-bg); color: var(--pill-activity-fg); }
+.tag-chip.vet[aria-pressed="true"] { background: var(--pill-vet-bg); color: var(--pill-vet-fg); }
 .field-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .star {
   min-height: 24px; width: 24px; padding: 0; border-radius: 999px;
@@ -872,7 +916,7 @@ h1 {
   border-radius: var(--radius);
   background: var(--bg);
 }
-.routine-row.done { background: var(--sage-soft); border-color: rgba(107, 142, 90, .35); }
+.routine-row.done { background: var(--sage-soft); border-color: var(--sage-line); }
 .routine-check {
   width: 32px; height: 32px;
   border-radius: 999px;
@@ -881,7 +925,7 @@ h1 {
   color: transparent;
   font-weight: 700;
 }
-.routine-row.done .routine-check { background: var(--sage); border-color: var(--sage); color: white; }
+.routine-row.done .routine-check { background: var(--sage); border-color: var(--sage); color: var(--on-accent); }
 .routine-main b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .routine-main span { display: block; font-size: 12px; color: var(--muted); }
 .routine-actions { display: flex; gap: 6px; align-items: center; }
@@ -892,7 +936,7 @@ h1 {
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; }
 .chip {
   min-height: 34px; padding: 6px 12px; border-radius: 999px;
-  background: white; color: var(--ink); border: 1px dashed var(--line-2);
+  background: var(--field); color: var(--ink); border: 1px dashed var(--line-2);
   font-size: 13px; font-weight: 500;
 }
 .chip:hover { background: var(--sage-soft); border-color: var(--sage); }
@@ -904,7 +948,7 @@ h1 {
   grid-column: 2 / -1;
   min-height: 38px;
   padding: 7px 12px;
-  background: white;
+  background: var(--field);
   color: var(--ink-2);
 }
 .small-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 14px 0 6px; }
@@ -916,11 +960,143 @@ h1 {
 .update-banner {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 16px; border-radius: var(--radius);
-  background: var(--amber-soft); color: #5e430c; font-size: 14px; font-weight: 500;
-  border: 1px solid #e6d3a0;
+  background: var(--amber-soft); color: var(--amber-ink); font-size: 14px; font-weight: 500;
+  border: 1px solid var(--amber-line);
 }
 .update-banner[hidden] { display: none; }
+
+/* ============ THEMES ============ */
+/* Night: a warm dark theme */
+:root[data-theme="night"] {
+  color-scheme: dark;
+  --bg: #171614;
+  --bg-2: #24221e;
+  --card: #1f1d1a;
+  --field: #292724;
+  --ink: #f0ebe2;
+  --ink-2: #cfc8bc;
+  --muted: #9a9186;
+  --line: #34312c;
+  --line-2: #474239;
+  --sage: #8db27a;
+  --sage-soft: #25301f;
+  --terra: #e08a68;
+  --terra-soft: #3a261d;
+  --amber: #dcab4f;
+  --amber-soft: #35301f;
+  --danger: #ef7b6b;
+  --on-accent: #171614;
+  --ink-hover: #ffffff;
+  --sage-hover: #a0c38d;
+  --sage-deep: #5f8150;
+  --sage-line: rgba(141, 178, 122, .4);
+  --sage-ink: #cfe3c3;
+  --terra-hover: #eb9c7c;
+  --amber-ink: #f0d9a2;
+  --amber-line: #5a4b26;
+  --danger-hover: #f4907f;
+  --danger-soft: #3b211d;
+  --danger-line: #6a3129;
+  --focus-ring: rgba(141, 178, 122, .25);
+  --nav-bg: rgba(31, 29, 26, .92);
+  --glow-a: rgba(141, 178, 122, .07);
+  --glow-b: rgba(224, 138, 104, .05);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .25), 0 2px 6px rgba(0, 0, 0, .2);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, .25), 0 12px 28px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, .3), 0 24px 48px rgba(0, 0, 0, .45);
+  --pill-weight-bg: #25301f;     --pill-weight-fg: #bcd8ad;
+  --pill-meal-bg: #35301f;       --pill-meal-fg: #ecd08e;
+  --pill-medication-bg: #3a261d; --pill-medication-fg: #f0b39a;
+  --pill-activity-bg: #1f2b3a;   --pill-activity-fg: #a9c4e6;
+  --pill-symptom-bg: #3a1f1f;    --pill-symptom-fg: #f0a8a8;
+  --pill-vet-bg: #2f2439;        --pill-vet-fg: #d2b8ea;
+  --pill-vomit-bg: #3a2619;      --pill-vomit-fg: #f0b08c;
+  --pill-diarrhea-bg: #33291a;   --pill-diarrhea-fg: #e3c48a;
+  --chart-accent: #8db27a;
+  --chart-accent-fill: rgba(141, 178, 122, .15);
+  --chart-accent-bar: rgba(141, 178, 122, .8);
+  --chart-accent-soft: rgba(141, 178, 122, .5);
+  --chart-accent-faint: rgba(141, 178, 122, .08);
+  --chart-avg: #e08a68;
+  --chart-vomit: rgba(224, 138, 104, .85);
+  --chart-vomit-line: #e08a68;
+  --chart-diarrhea: rgba(220, 171, 79, .85);
+  --chart-diarrhea-line: #dcab4f;
+  --chart-text: #9a9186;
+  --chart-legend: #cfc8bc;
+  --chart-grid: #34312c;
+  --chart-tooltip: #f0ebe2;
+  --chart-tooltip-text: #171614;
+  --chart-point-border: #1f1d1a;
+}
+/* Ocean: a cool, blue-grey light theme */
+:root[data-theme="ocean"] {
+  --bg: #eef3f6;
+  --bg-2: #dde7ee;
+  --card: #ffffff;
+  --ink: #15212a;
+  --ink-2: #3b4b57;
+  --muted: #5b6e7b;
+  --line: #d3dee6;
+  --line-2: #bccbd6;
+  --sage: #2e7d8f;
+  --sage-soft: #dcedf1;
+  --terra: #d0674a;
+  --terra-soft: #f7e2da;
+  --amber: #b5861d;
+  --amber-soft: #f4ecd3;
+  --danger: #b83a2e;
+  --ink-hover: #22313c;
+  --sage-hover: #276b7a;
+  --sage-deep: #215e6c;
+  --sage-line: rgba(46, 125, 143, .35);
+  --sage-ink: #17434d;
+  --terra-hover: #b95a40;
+  --amber-ink: #5a430c;
+  --amber-line: #e5d5a6;
+  --danger-hover: #9f3228;
+  --danger-soft: #fbe9e6;
+  --danger-line: #f0c6bf;
+  --focus-ring: rgba(46, 125, 143, .18);
+  --glow-a: rgba(46, 125, 143, .12);
+  --glow-b: rgba(208, 103, 74, .07);
+  --pill-weight-bg: #dcedf1;     --pill-weight-fg: #17434d;
+  --chart-accent: #2e7d8f;
+  --chart-accent-fill: rgba(46, 125, 143, .12);
+  --chart-accent-bar: rgba(46, 125, 143, .8);
+  --chart-accent-soft: rgba(46, 125, 143, .45);
+  --chart-accent-faint: rgba(46, 125, 143, .08);
+  --chart-avg: #d0674a;
+  --chart-vomit: rgba(208, 103, 74, .85);
+  --chart-vomit-line: #d0674a;
+  --chart-text: #5b6e7b;
+  --chart-legend: #3b4b57;
+  --chart-grid: #d3dee6;
+  --chart-tooltip: #15212a;
+}
+
+/* Theme picker */
+.theme-list { display: grid; gap: 8px; }
+.theme-option {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  padding: 12px; min-height: 60px; text-align: left;
+  background: var(--bg); color: var(--ink); border: 2px solid transparent; border-radius: var(--radius);
+  font-weight: 500;
+}
+.theme-option:hover { background: var(--bg-2); }
+.theme-option[aria-pressed="true"] { border-color: var(--sage); }
+.theme-option small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+.theme-swatch { display: flex; flex: 0 0 auto; border-radius: 10px; overflow: hidden; border: 1px solid var(--line-2); }
+.theme-swatch i { width: 16px; height: 36px; display: block; }
 </style>
+<script>
+  // Apply this device's saved color theme before the page draws, so the
+  // default colors don't flash first.
+  try {
+    var savedTheme = localStorage.getItem('petHealth.theme');
+    if (savedTheme && savedTheme !== 'garden') document.documentElement.setAttribute('data-theme', savedTheme);
+  } catch (e) {}
+</script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 </head>
@@ -945,6 +1121,7 @@ h1 {
       <button id="importBtn" class="secondary" type="button">Import</button>
       <button id="exportCsvBtn" class="sage" type="button">Export CSV</button>
       <button id="exportJsonBtn" class="ghost" type="button">Export JSON</button>
+      <button id="themeBtn" class="ghost" type="button" title="Color theme" aria-label="Color theme">🎨</button>
     </div>
   </header>
 
@@ -1139,6 +1316,12 @@ h1 {
   var updateNotice = '';   // message for the reload banner, if any
   var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
   var lastUpdateCheck = 0; // when version.json was last checked
+  // Color themes (used by the picker further down; defined here because startup reads it)
+  var THEMES = [
+    { id: 'garden', name: 'Garden', about: 'Warm cream and sage (default)', page: '#f7f3ec', swatch: ['#f7f3ec', '#6b8e5a', '#c2613f'] },
+    { id: 'night', name: 'Night', about: 'Dark, easy on the eyes', page: '#171614', swatch: ['#171614', '#8db27a', '#e08a68'] },
+    { id: 'ocean', name: 'Ocean', about: 'Cool blue-grey and teal', page: '#eef3f6', swatch: ['#eef3f6', '#2e7d8f', '#d0674a'] }
+  ];
 
   // ===== FIREBASE =====
   var db = null;
@@ -1184,6 +1367,7 @@ h1 {
   $('search').addEventListener('input', renderRecords);
   $('exportCsvBtn').addEventListener('click', exportCsv);
   $('exportJsonBtn').addEventListener('click', exportJson);
+  $('themeBtn').addEventListener('click', openThemePicker);
   $('importBtn').addEventListener('click', triggerImport);
   $('fileInput').addEventListener('change', handleImport);
   $('modalClose').addEventListener('click', closeModal);
@@ -1210,6 +1394,9 @@ h1 {
 
   // Keep this device in step with the cloud if it's linked to a vault
   if (db && syncCode) startSync(false);
+
+  var startTheme = THEMES.find(function (t) { return t.id === currentTheme(); });
+  if (startTheme) document.querySelector('meta[name="theme-color"]').setAttribute('content', startTheme.page);
 
   checkForUpdate(true);
   document.addEventListener('visibilitychange', function () {
@@ -1824,7 +2011,32 @@ h1 {
     $('chartSummary').innerHTML = parts.join('');
   }
 
+  // Chart colors come from the active theme (the --chart-* variables in the CSS).
+  function chartColors() {
+    var css = getComputedStyle(document.documentElement);
+    function v(name, fallback) { return (css.getPropertyValue(name) || '').trim() || fallback; }
+    return {
+      accent: v('--chart-accent', '#6b8e5a'),
+      accentFill: v('--chart-accent-fill', 'rgba(107, 142, 90, .12)'),
+      accentBar: v('--chart-accent-bar', 'rgba(107, 142, 90, .8)'),
+      accentSoft: v('--chart-accent-soft', 'rgba(107, 142, 90, .45)'),
+      accentFaint: v('--chart-accent-faint', 'rgba(107, 142, 90, .08)'),
+      avg: v('--chart-avg', '#c2613f'),
+      vomit: v('--chart-vomit', 'rgba(194, 97, 63, .85)'),
+      vomitLine: v('--chart-vomit-line', '#c2613f'),
+      diarrhea: v('--chart-diarrhea', 'rgba(146, 99, 22, .85)'),
+      diarrheaLine: v('--chart-diarrhea-line', '#926316'),
+      text: v('--chart-text', '#8a8278'),
+      legend: v('--chart-legend', '#4a4640'),
+      grid: v('--chart-grid', '#e3dccc'),
+      tooltip: v('--chart-tooltip', '#1f1d1a'),
+      tooltipText: v('--chart-tooltip-text', '#ffffff'),
+      pointBorder: v('--chart-point-border', '#ffffff')
+    };
+  }
+
   function renderChart() {
+    var C = chartColors();
     var canvas = $('chart');
     if (!canvas) return;
     var mode = $('chartMode').value;
@@ -1891,8 +2103,8 @@ h1 {
 
     // Color tokens that match the type-pill palette in the records list
     var TYPE_COLORS = {
-      vomit:    { fill: 'rgba(194, 97, 63, .85)', soft: 'rgba(194, 97, 63, .15)', line: '#c2613f' },
-      diarrhea: { fill: 'rgba(146, 99, 22, .85)', soft: 'rgba(146, 99, 22, .15)', line: '#926316' }
+      vomit:    { fill: C.vomit, line: C.vomitLine },
+      diarrhea: { fill: C.diarrhea, line: C.diarrheaLine }
     };
 
     // Compose chart config based on mode
@@ -1986,22 +2198,22 @@ h1 {
         var wSets = [{
           label: 'Daily weight',
           data: wValues,
-          borderColor: showAvg ? 'rgba(107, 142, 90, .45)' : '#6b8e5a',
-          backgroundColor: 'rgba(107, 142, 90, .08)',
+          borderColor: showAvg ? C.accentSoft : C.accent,
+          backgroundColor: C.accentFaint,
           borderWidth: showAvg ? 1.5 : 2,
           fill: !showAvg,
           tension: 0.25,
           pointRadius: dense ? 0 : 3,
           pointHoverRadius: 4,
-          pointBackgroundColor: '#6b8e5a',
-          pointBorderColor: 'white',
+          pointBackgroundColor: C.accent,
+          pointBorderColor: C.pointBorder,
           pointBorderWidth: 1
         }];
         if (showAvg) {
           wSets.push({
             label: '7-day average',
             data: wAvg,
-            borderColor: '#c2613f',
+            borderColor: C.avg,
             borderWidth: 2.5,
             fill: false,
             tension: 0.35,
@@ -2031,7 +2243,7 @@ h1 {
     if (isEmpty) {
       var ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#8a8278';
+      ctx.fillStyle = C.text;
       ctx.font = '13px Geist, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -2050,12 +2262,12 @@ h1 {
             data: data,
             tension: 0.35,
             fill: chartType === 'line',
-            backgroundColor: chartType === 'line' ? 'rgba(107, 142, 90, .12)' : 'rgba(107, 142, 90, .8)',
-            borderColor: '#6b8e5a',
+            backgroundColor: chartType === 'line' ? C.accentFill : C.accentBar,
+            borderColor: C.accent,
             borderWidth: 2,
             pointRadius: chartType === 'line' ? 4 : 0,
-            pointBackgroundColor: '#6b8e5a',
-            pointBorderColor: 'white',
+            pointBackgroundColor: C.accent,
+            pointBorderColor: C.pointBorder,
             pointBorderWidth: 2,
             borderRadius: chartType === 'bar' ? 4 : 0,
           }]
@@ -2074,7 +2286,7 @@ h1 {
           position: 'top',
           align: 'end',
           labels: {
-            color: '#4a4640',
+            color: C.legend,
             font: { family: 'Geist', size: 12, weight: '500' },
             usePointStyle: true,
             pointStyle: 'rectRounded',
@@ -2084,7 +2296,9 @@ h1 {
           }
         },
         tooltip: {
-          backgroundColor: '#1f1d1a',
+          backgroundColor: C.tooltip,
+          titleColor: C.tooltipText,
+          bodyColor: C.tooltipText,
           titleFont: { family: 'Geist', weight: '600' },
           bodyFont: { family: 'Geist' },
           padding: 10,
@@ -2102,13 +2316,13 @@ h1 {
         y: {
           beginAtZero: mode !== 'weight',
           stacked: mode === 'gi-weekly',
-          ticks: { precision: 0, color: '#8a8278', font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined },
-          grid: { color: '#e3dccc' },
-          title: isWeeklyMode ? { display: true, text: 'Episodes', color: '#8a8278', font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
+          ticks: { precision: 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined },
+          grid: { color: C.grid },
+          title: isWeeklyMode ? { display: true, text: 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
         },
         x: {
           stacked: mode === 'gi-weekly',
-          ticks: { color: '#8a8278', font: { family: 'Geist', size: 11 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 16 },
+          ticks: { color: C.text, font: { family: 'Geist', size: 11 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 16 },
           grid: { display: false }
         }
       }
@@ -2433,6 +2647,40 @@ h1 {
     }
   }
 
+  // ===== COLOR THEMES =====
+  // Saved per device, so each person picks their own. Colors live in the CSS
+  // (:root and :root[data-theme="..."]); swatches here are just for the picker.
+  function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') || 'garden';
+  }
+  function applyTheme(id) {
+    var theme = THEMES.find(function (t) { return t.id === id; }) || THEMES[0];
+    if (theme.id === 'garden') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', theme.id);
+    try { localStorage.setItem('petHealth.theme', theme.id); } catch (e) {}
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme.page); // phone status bar color
+    renderChart(); // charts read their colors from the theme
+  }
+  function openThemePicker() {
+    modalTitle.textContent = 'Color theme';
+    function draw() {
+      var active = currentTheme();
+      modalBody.innerHTML = '<div class="theme-list">' + THEMES.map(function (t) {
+        return '<button class="theme-option" type="button" data-theme-id="' + t.id + '" aria-pressed="' + (t.id === active) + '">' +
+          '<span class="theme-swatch">' + t.swatch.map(function (c) { return '<i style="background:' + c + '"></i>'; }).join('') + '</span>' +
+          '<span>' + t.name + '<small>' + t.about + '</small></span>' +
+        '</button>';
+      }).join('') + '</div>' +
+      '<p class="routine-intro" style="margin:14px 0 0;color:var(--muted)">Saved on this device only.</p>';
+      modalBody.querySelectorAll('[data-theme-id]').forEach(function (b) {
+        b.addEventListener('click', function () { applyTheme(b.getAttribute('data-theme-id')); draw(); });
+      });
+    }
+    draw();
+    openModal();
+  }
+
   function openMobileMenu() {
     modalTitle.textContent = 'More';
     modalBody.innerHTML =
@@ -2442,9 +2690,11 @@ h1 {
         '<button class="menu-item" id="miImport" type="button"><span class="menu-icon">⬆</span>Import JSON</button>' +
         '<button class="menu-item" id="miExportCsv" type="button"><span class="menu-icon">📊</span>Export CSV</button>' +
         '<button class="menu-item" id="miExportJson" type="button"><span class="menu-icon">💾</span>Export JSON</button>' +
+        '<button class="menu-item" id="miTheme" type="button"><span class="menu-icon">🎨</span>Color theme</button>' +
       '</div>';
     openModal();
     $('miAuth').addEventListener('click', function () { closeModal(); handleAuthClick(); });
+    $('miTheme').addEventListener('click', function () { closeModal(); setTimeout(openThemePicker, 250); });
     $('miAddPet').addEventListener('click', function () { closeModal(); setTimeout(openAddPetModal, 250); });
     $('miImport').addEventListener('click', function () { closeModal(); triggerImport(); });
     $('miExportCsv').addEventListener('click', function () { closeModal(); exportCsv(); });

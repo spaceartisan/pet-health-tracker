@@ -28,7 +28,7 @@ You'll see one line per group, desktop and mobile layouts:
 PASS Sync  24/24
 PASS Routine  18/18
 ...
-All 183 checks passed.
+All 215 checks passed.
 ```
 
 If anything fails, it lists which check and what it found instead. Don't push until it passes, or until you've confirmed the failure is expected (see below).
@@ -46,7 +46,7 @@ If anything fails, it lists which check and what it found instead. Don't push un
 
 | Group | Checks |
 |---|---|
-| Setup | `version.json`, `DATA_VERSION` and the rules' `minVersion` agree |
+| Setup | `version.json`, `DATA_VERSION` and the rules' `minVersion` agree; no undefined theme colors |
 | Conversion | Logs in the older format convert without losing anything |
 | Sync | Devices sharing a vault: stale devices, offline logging, loading codes, new vaults, edits during updates |
 | Everyday | Evening dates, stored text shown safely, editing logs |
@@ -54,6 +54,7 @@ If anything fails, it lists which check and what it found instead. Don't push un
 | Doses | Default doses, per-log edits, typing while another device syncs, "stop daily" |
 | Charts | Daily weights, 7-day average, summary, vomit per week |
 | Update protection | Save stamps, refused outdated copies, reload banner, newer data formats |
+| Themes | Picking, saving and loading themes; chart colors follow the theme; every theme color is defined |
 
 ## When a test fails
 
