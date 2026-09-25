@@ -812,6 +812,59 @@ h1 {
     transition-duration: .01ms !important;
   }
 }
+/* ============ TYPE-SPECIFIC LOG FIELDS ============ */
+.type-fields { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+.field[hidden] { display: none !important; }
+.more-fields { justify-self: start; margin-top: -4px; }
+.more-fields[hidden] { display: none; }
+
+/* ============ TODAY / ROUTINE ============ */
+@media (min-width: 721px) { #panel-home { display: grid; gap: 18px; } }
+.today { padding: 20px; }
+.routine-list { display: grid; gap: 8px; }
+.routine-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.routine-row.done { background: var(--sage-soft); border-color: rgba(107, 142, 90, .35); }
+.routine-check {
+  width: 32px; height: 32px;
+  border-radius: 999px;
+  display: grid; place-items: center;
+  border: 2px solid var(--line-2);
+  color: transparent;
+  font-weight: 700;
+}
+.routine-row.done .routine-check { background: var(--sage); border-color: var(--sage); color: white; }
+.routine-main b { display: block; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.routine-main span { display: block; font-size: 12px; color: var(--muted); }
+.routine-actions { display: flex; gap: 6px; align-items: center; }
+.routine-actions input { width: 92px; min-height: 36px; padding: 6px 10px; }
+.routine-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.routine-footer .progress { font-size: 13px; color: var(--muted); }
+.routine-intro { font-size: 13px; color: var(--ink-2); margin: 0 0 12px; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 14px; }
+.chip {
+  min-height: 34px; padding: 6px 12px; border-radius: 999px;
+  background: white; color: var(--ink); border: 1px dashed var(--line-2);
+  font-size: 13px; font-weight: 500;
+}
+.chip:hover { background: var(--sage-soft); border-color: var(--sage); }
+.routine-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--bg); border-radius: var(--radius-sm); }
+.routine-add { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 8px; margin-top: 10px; }
+@media (max-width: 480px) { .routine-add { grid-template-columns: 1fr; } }
+.small-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 14px 0 6px; }
+
+/* ============ WEIGHT TREND SUMMARY ============ */
+.chart-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
+.chart-summary:empty { display: none; }
+.chart-summary .badge b { color: var(--ink); font-weight: 600; }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
@@ -889,6 +942,15 @@ h1 {
             <ul id="careNotes"><li>No logs yet.</li></ul>
           </div>
         </section>
+
+        <!-- Daily routine checklist -->
+        <section class="today card" id="todayCard" hidden>
+          <div class="section-h">
+            <h2 id="todayTitle">Today</h2>
+            <button type="button" class="ghost tiny" id="editRoutineBtn">Edit routine</button>
+          </div>
+          <div id="todayList"></div>
+        </section>
       </section>
 
       <!-- Workspace: form + chart + records -->
@@ -916,19 +978,18 @@ h1 {
                   </select>
                 </label>
               </div>
-              <div class="form-grid cols-3">
-                <label class="field">Weight<input type="number" step="0.01" id="rWeight" inputmode="decimal" placeholder="lb / kg"></label>
-                <label class="field">Mood<input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
-                <label class="field">Activity<input type="number" id="rActivity" inputmode="numeric" placeholder="min"></label>
+              <div class="form-grid type-fields">
+                <label class="field" data-field="weight">Weight<input type="number" step="0.01" id="rWeight" inputmode="decimal" placeholder="lb / kg"></label>
+                <label class="field" data-field="med">Medication<input id="rMed" list="medOptions" placeholder="e.g. Famotidine"></label>
+                <label class="field" data-field="food">Food<input id="rFood" list="foodOptions" placeholder="meal / brand"></label>
+                <label class="field" data-field="activity">Activity<input type="number" id="rActivity" inputmode="numeric" placeholder="min"></label>
+                <label class="field" data-field="mood">Mood<input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
+                <label class="field" data-field="cost">Cost<input type="number" step="0.01" id="rCost" inputmode="decimal" placeholder="$"></label>
               </div>
-              <div class="form-grid cols-2">
-                <label class="field">Food<input id="rFood" placeholder="meal / brand"></label>
-                <label class="field">Medication<input id="rMed" placeholder="dose"></label>
-              </div>
-              <div class="form-grid cols-2">
-                <label class="field">Cost<input type="number" step="0.01" id="rCost" inputmode="decimal" placeholder="$"></label>
-                <label class="field" style="grid-column: 1 / -1;">Note<textarea id="rNote" placeholder="Symptoms, appetite, behavior, vet instructions…"></textarea></label>
-              </div>
+              <button type="button" class="ghost tiny more-fields" id="moreFields">Show all fields</button>
+              <label class="field">Note<textarea id="rNote" placeholder="Symptoms, appetite, behavior, vet instructions…"></textarea></label>
+              <datalist id="medOptions"></datalist>
+              <datalist id="foodOptions"></datalist>
               <div class="form-actions">
                 <button type="submit" class="sage" id="submitBtn">Add log</button>
                 <button type="button" id="clearForm" class="ghost">Clear</button>
@@ -951,6 +1012,7 @@ h1 {
                   <option value="types">Log types</option>
                 </select>
               </div>
+              <div class="chart-summary" id="chartSummary"></div>
               <div class="chart-wrap"><canvas id="chart"></canvas></div>
             </section>
 
@@ -1023,6 +1085,7 @@ h1 {
   var activePetId = state.pets[0] ? state.pets[0].id : null;
   var chart = null;
   var editingLogId = null;
+  var showAllFields = false;
 
   // ===== DOM HELPERS =====
   var $ = function (id) { return document.getElementById(id); };
@@ -1031,7 +1094,7 @@ h1 {
   var modalTitle = $('modalTitle');
 
   // Initialize date input to today
-  $('rDate').valueAsDate = new Date();
+  $('rDate').value = today();
 
   // ===== EVENT LISTENERS =====
   $('savePet').addEventListener('click', addPetFromSidebar);
@@ -1039,6 +1102,9 @@ h1 {
   $('addPetBtn').addEventListener('click', openAddPetModal);
   $('recordForm').addEventListener('submit', handleRecordSubmit);
   $('clearForm').addEventListener('click', clearRecordForm);
+  $('rType').addEventListener('change', updateFieldVisibility);
+  $('moreFields').addEventListener('click', function () { showAllFields = true; updateFieldVisibility(); });
+  $('editRoutineBtn').addEventListener('click', openRoutineEditor);
   $('chartMode').addEventListener('change', renderChart);
   $('search').addEventListener('input', renderRecords);
   $('exportCsvBtn').addEventListener('click', exportCsv);
@@ -1065,6 +1131,7 @@ h1 {
   if (firstVisit && !syncCode) seed();
   activePetId = state.pets[0] ? state.pets[0].id : null;
   renderAuthBtn();
+  updateFieldVisibility();
   render();
 
   // Keep this device in step with the cloud if it's linked to a vault
@@ -1074,6 +1141,8 @@ h1 {
   function render() {
     renderPets();
     renderSummary();
+    renderToday();
+    refreshSuggestions();
     renderRecords();
     renderChart();
   }
@@ -1141,7 +1210,9 @@ h1 {
     var symptoms = rs.filter(function (r) { return r.type === 'symptom'; }).length;
     if (symptoms) notes.push(symptoms + ' symptom log' + (symptoms === 1 ? '' : 's') + ' recorded.');
     // Highlight recent GI events (last 14 days) — these matter more by recency than total
-    var giCutoff = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+    var cutoffDay = new Date();
+    cutoffDay.setDate(cutoffDay.getDate() - 14);
+    var giCutoff = localDate(cutoffDay);
     var recentVomit = rs.filter(function (r) { return r.type === 'vomit' && r.date >= giCutoff; }).length;
     var recentDiarrhea = rs.filter(function (r) { return r.type === 'diarrhea' && r.date >= giCutoff; }).length;
     if (recentVomit) notes.push(recentVomit + ' vomit episode' + (recentVomit === 1 ? '' : 's') + ' in the last 14 days.');
@@ -1167,9 +1238,10 @@ h1 {
 
     $('records').innerHTML = rs.map(function (r) {
       var bits = [];
-      if (r.weight !== '' && r.weight != null) bits.push('Wt ' + r.weight);
-      if (r.mood !== '' && r.mood != null) bits.push('Mood ' + r.mood + '/5');
-      if (r.activity !== '' && r.activity != null) bits.push(r.activity + ' min');
+      // Every value is escaped: vault data can be written by anyone with the code.
+      if (r.weight !== '' && r.weight != null) bits.push('Wt ' + esc(r.weight));
+      if (r.mood !== '' && r.mood != null) bits.push('Mood ' + esc(r.mood) + '/5');
+      if (r.activity !== '' && r.activity != null) bits.push(esc(r.activity) + ' min');
       if (r.cost !== '' && r.cost != null && Number(r.cost) > 0) bits.push('$' + Number(r.cost).toFixed(2));
       if (r.food) bits.push(esc(r.food));
       if (r.med) bits.push(esc(r.med));
@@ -1177,7 +1249,7 @@ h1 {
         '<div class="record" data-id="' + esc(r.id) + '">' +
           '<div class="record-top">' +
             '<div class="record-top-left">' +
-              '<div class="record-type"><span class="type-pill ' + esc(r.type) + '">' + label(r.type) + '</span></div>' +
+              '<div class="record-type"><span class="type-pill ' + esc(r.type) + '">' + esc(label(r.type)) + '</span></div>' +
               '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
             '</div>' +
             '<div class="record-actions">' +
@@ -1198,6 +1270,297 @@ h1 {
     });
   }
 
+  // ===== DAILY ROUTINE =====
+  // Each pet can have a routine: medicines given every day and an optional
+  // weigh-in. It's stored on the pet (pet.routine), so it syncs like any other
+  // pet detail and needs no change to the Firebase rules.
+  function normName(v) { return String(v == null ? '' : v).trim().replace(/\s+/g, ' ').toLowerCase(); }
+  function timeOf(iso) {
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? '' : d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  // Pair each routine item with a log from today, if there is one. Logs made
+  // through the normal form count too, so nothing is logged twice.
+  function routineStatus(pet) {
+    var t = today();
+    var todays = state.records.filter(function (r) { return r.petId === pet.id && r.date === t; });
+    var used = {};
+    return (pet.routine || []).map(function (item) {
+      var match = null;
+      for (var i = 0; i < todays.length; i++) {
+        var r = todays[i];
+        if (used[r.id]) continue;
+        var ok = item.kind === 'weight'
+          ? (r.type === 'weight' && r.weight !== '' && r.weight != null)
+          : (r.type === 'medication' && normName(r.med) === normName(item.med));
+        if (ok) { match = r; used[r.id] = true; break; }
+      }
+      return { item: item, log: match };
+    });
+  }
+  function renderToday() {
+    var card = $('todayCard');
+    var p = activePet();
+    if (!p) { card.hidden = true; return; }
+    card.hidden = false;
+    $('todayTitle').textContent = 'Today · ' + p.name;
+    var rows = routineStatus(p);
+    var list = $('todayList');
+    if (!rows.length) {
+      $('editRoutineBtn').hidden = true;
+      list.innerHTML =
+        '<p class="routine-intro">Add the medicines and weigh-ins ' + esc(p.name) + ' gets every day, then log each one with a single tap.</p>' +
+        '<button type="button" class="sage" id="setupRoutineBtn">Set up daily routine</button>';
+      $('setupRoutineBtn').addEventListener('click', openRoutineEditor);
+      return;
+    }
+    $('editRoutineBtn').hidden = false;
+    var doneCount = rows.filter(function (r) { return r.log; }).length;
+    var remainingMeds = rows.filter(function (r) { return !r.log && r.item.kind !== 'weight'; });
+    list.innerHTML =
+      '<div class="routine-list">' + rows.map(function (row, i) {
+        var it = row.item, log = row.log;
+        var title = it.kind === 'weight' ? 'Weigh-in' : esc(it.med);
+        var sub = log
+          ? (it.kind === 'weight' ? esc(log.weight) + ' · ' : '') + (log.loggedAt ? 'Logged ' + esc(timeOf(log.loggedAt)) : 'Logged today')
+          : 'Not yet today';
+        var actions = log
+          ? '<button class="ghost tiny" data-undo="' + i + '" type="button">Undo</button>'
+          : (it.kind === 'weight'
+              ? '<input type="number" step="0.01" inputmode="decimal" placeholder="Weight" data-weight="' + i + '" aria-label="Weight">'
+              : '') + '<button class="sage tiny" data-log="' + i + '" type="button">Log</button>';
+        return '<div class="routine-row' + (log ? ' done' : '') + '">' +
+          '<div class="routine-check" aria-hidden="true">✓</div>' +
+          '<div class="routine-main"><b>' + title + '</b><span>' + sub + '</span></div>' +
+          '<div class="routine-actions">' + actions + '</div>' +
+        '</div>';
+      }).join('') + '</div>' +
+      '<div class="routine-footer"><span class="progress">' + doneCount + ' of ' + rows.length + ' done</span>' +
+        (remainingMeds.length >= 2 ? '<button class="secondary tiny" id="logAllMeds" type="button">Log all ' + remainingMeds.length + ' medicines</button>' : '') +
+      '</div>';
+
+    list.querySelectorAll('[data-log]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.getAttribute('data-log'));
+        var input = list.querySelector('[data-weight="' + i + '"]');
+        logRoutineItems(p.id, [rows[i].item], input ? input.value : '');
+      });
+    });
+    list.querySelectorAll('[data-weight]').forEach(function (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        var i = Number(input.getAttribute('data-weight'));
+        logRoutineItems(p.id, [rows[i].item], input.value);
+      });
+    });
+    list.querySelectorAll('[data-undo]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var log = rows[Number(b.getAttribute('data-undo'))].log;
+        state.records = state.records.filter(function (r) { return r.id !== log.id; });
+        save();
+        render();
+        toast('Removed');
+      });
+    });
+    if ($('logAllMeds')) {
+      $('logAllMeds').addEventListener('click', function () {
+        logRoutineItems(p.id, remainingMeds.map(function (r) { return r.item; }), '');
+      });
+    }
+  }
+  function logRoutineItems(petId, items, weightValue) {
+    var now = new Date().toISOString();
+    var added = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var isWeight = it.kind === 'weight';
+      if (isWeight && (weightValue === '' || !(Number(weightValue) > 0))) { toast('Enter a weight first'); return; }
+      added.push({
+        id: uid(), petId: petId, date: today(), type: isWeight ? 'weight' : 'medication',
+        weight: isWeight ? Number(weightValue) : '', mood: '', activity: '', cost: '',
+        food: '', med: isWeight ? '' : it.med, note: '', loggedAt: now
+      });
+    }
+    state.records = state.records.concat(added);
+    save();
+    render();
+    toast(added.length === 1 ? (items[0].kind === 'weight' ? 'Weight logged' : items[0].med + ' logged') : added.length + ' medicines logged');
+  }
+  // Medicines given on at least 3 of the last 14 days, most frequent first.
+  function suggestMeds(pet) {
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 14);
+    var from = localDate(cutoff);
+    var days = {}, spelling = {};
+    state.records.forEach(function (r) {
+      if (r.petId !== pet.id || r.type !== 'medication' || r.date < from) return;
+      var k = normName(r.med);
+      if (!k) return;
+      days[k] = days[k] || {};
+      days[k][r.date] = true;
+      spelling[k] = String(r.med).trim();
+    });
+    return Object.keys(days)
+      .filter(function (k) { return Object.keys(days[k]).length >= 3; })
+      .sort(function (a, b) { return Object.keys(days[b]).length - Object.keys(days[a]).length; })
+      .map(function (k) { return spelling[k]; });
+  }
+  function openRoutineEditor() {
+    var petId = activePetId;
+    if (!petId) return;
+    modalTitle.textContent = 'Daily routine';
+    function currentPet() { return state.pets.find(function (x) { return x.id === petId; }); }
+    function addItem(item) {
+      var p = currentPet();
+      if (!p) return closeModal();
+      p.routine = (p.routine || []).concat([item]);
+      delete p.sample; // a demo pet with a routine is now the user's own
+      save();
+      render();
+      draw();
+    }
+    function draw() {
+      var p = currentPet();
+      if (!p) { closeModal(); return toast('This pet was removed on another device'); }
+      var routine = p.routine || [];
+      var hasWeighIn = routine.some(function (it) { return it.kind === 'weight'; });
+      var suggestions = suggestMeds(p).filter(function (m) {
+        return !routine.some(function (it) { return it.kind !== 'weight' && normName(it.med) === normName(m); });
+      });
+      modalBody.innerHTML =
+        '<p class="routine-intro">What does ' + esc(p.name) + ' get every day? Each item appears on the home screen with a one-tap Log button.</p>' +
+        (routine.length
+          ? '<div class="routine-list">' + routine.map(function (it, i) {
+              return '<div class="routine-edit-row"><span>' + (it.kind === 'weight' ? '⚖️ Weigh-in' : '💊 ' + esc(it.med)) + '</span>' +
+                '<button class="ghost tiny" data-remove="' + i + '" type="button">Remove</button></div>';
+            }).join('') + '</div>'
+          : '') +
+        (suggestions.length
+          ? '<p class="small-label">Given often lately</p><div class="chip-row">' + suggestions.map(function (m, i) {
+              return '<button class="chip" type="button" data-suggest="' + i + '">+ ' + esc(m) + '</button>';
+            }).join('') + '</div>'
+          : '') +
+        '<p class="small-label">Add an item</p>' +
+        '<div class="routine-add">' +
+          '<select id="rtKind" aria-label="Item type"><option value="medication">Medicine</option>' + (hasWeighIn ? '' : '<option value="weight">Weigh-in</option>') + '</select>' +
+          '<input id="rtMed" list="medOptions" placeholder="Medicine name" autocomplete="off" aria-label="Medicine name">' +
+          '<button class="secondary" id="rtAdd" type="button">Add</button>' +
+        '</div>' +
+        '<div class="form-actions" style="margin-top:16px"><button class="sage" id="rtDone" type="button">Done</button></div>';
+
+      modalBody.querySelectorAll('[data-remove]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var cur = currentPet();
+          if (!cur) return closeModal();
+          var i = Number(b.getAttribute('data-remove'));
+          cur.routine = (cur.routine || []).filter(function (_, j) { return j !== i; });
+          save();
+          render();
+          draw();
+        });
+      });
+      modalBody.querySelectorAll('[data-suggest]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          addItem({ id: uid(), kind: 'medication', med: suggestions[Number(b.getAttribute('data-suggest'))] });
+        });
+      });
+      $('rtKind').addEventListener('change', function () { $('rtMed').hidden = $('rtKind').value === 'weight'; });
+      function addFromInputs() {
+        if ($('rtKind').value === 'weight') return addItem({ id: uid(), kind: 'weight' });
+        var name = $('rtMed').value.trim().replace(/\s+/g, ' ');
+        if (!name) return toast('Enter a medicine name');
+        addItem({ id: uid(), kind: 'medication', med: name });
+      }
+      $('rtAdd').addEventListener('click', addFromInputs);
+      $('rtMed').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addFromInputs(); } });
+      $('rtDone').addEventListener('click', closeModal);
+    }
+    draw();
+    openModal();
+  }
+
+  // ===== SUGGESTIONS FOR MEDICINE AND FOOD NAMES =====
+  // Offers names already used, most common first, in their most common
+  // spelling, so "Famotidine" isn't split into "Famotadine" by a typo.
+  function topValues(field) {
+    var counts = {}, spellings = {};
+    state.records.forEach(function (r) {
+      var v = String(r[field] == null ? '' : r[field]).trim().replace(/\s+/g, ' ');
+      if (!v) return;
+      var k = v.toLowerCase();
+      counts[k] = (counts[k] || 0) + 1;
+      spellings[k] = spellings[k] || {};
+      spellings[k][v] = (spellings[k][v] || 0) + 1;
+    });
+    return Object.keys(counts)
+      .sort(function (a, b) { return counts[b] - counts[a]; })
+      .slice(0, 50)
+      .map(function (k) {
+        var sp = spellings[k];
+        return Object.keys(sp).sort(function (a, b) { return sp[b] - sp[a]; })[0];
+      });
+  }
+  function refreshSuggestions() {
+    var meds = topValues('med');
+    // Include routine medicines so they're suggested even before first logged
+    state.pets.forEach(function (p) {
+      (p.routine || []).forEach(function (it) {
+        if (it.kind !== 'weight' && !meds.some(function (m) { return normName(m) === normName(it.med); })) meds.push(it.med);
+      });
+    });
+    $('medOptions').innerHTML = meds.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
+    $('foodOptions').innerHTML = topValues('food').map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
+  }
+
+  // ===== LOG FORM: SHOW THE FIELDS THAT FIT THE LOG TYPE =====
+  // Note is always shown. Any field that already has a value (e.g. when
+  // editing an older log) stays visible so nothing is hidden or lost.
+  function updateFieldVisibility() {
+    // Kept inside the function: startup code runs before later variables are set.
+    var TYPE_FIELDS = {
+      weight: ['weight'],
+      meal: ['food'],
+      medication: ['med', 'cost'],
+      activity: ['activity', 'mood'],
+      symptom: ['mood'],
+      vomit: ['food'],
+      diarrhea: ['food'],
+      vet: ['weight', 'cost']
+    };
+    var FIELD_INPUTS = { weight: 'rWeight', med: 'rMed', food: 'rFood', activity: 'rActivity', mood: 'rMood', cost: 'rCost' };
+    var wanted = TYPE_FIELDS[$('rType').value] || [];
+    var hiddenCount = 0;
+    document.querySelectorAll('.type-fields [data-field]').forEach(function (el) {
+      var f = el.getAttribute('data-field');
+      var show = showAllFields || wanted.indexOf(f) >= 0 || $(FIELD_INPUTS[f]).value !== '';
+      el.hidden = !show;
+      if (!show) hiddenCount++;
+    });
+    $('moreFields').hidden = hiddenCount === 0;
+  }
+
+  // Latest weight, plus change over 30 days and since the first weigh-in.
+  // Changes compare 7-day averages so one odd reading doesn't skew them.
+  function renderWeightSummary(days, values, avg) {
+    var last = days.length - 1;
+    function change(text, from) {
+      var diff = avg[last] - avg[from];
+      var pct = avg[from] ? diff / avg[from] * 100 : 0;
+      var sign = diff > 0 ? '+' : diff < 0 ? '−' : '±';
+      return '<span class="badge" title="Based on 7-day averages">' + esc(text) + ' <b>' + sign + Math.abs(diff).toFixed(2) +
+        ' (' + sign + Math.abs(pct).toFixed(1) + '%)</b></span>';
+    }
+    var parts = ['<span class="badge">Latest <b>' + esc(values[last]) + '</b></span>'];
+    var ref = new Date(days[last] + 'T00:00:00');
+    ref.setDate(ref.getDate() - 30);
+    var refDay = localDate(ref);
+    for (var j = last; j >= 0; j--) {
+      if (days[j] <= refDay) { parts.push(change('30 days', j)); break; }
+    }
+    if (last > 0) parts.push(change('Since ' + formatDate(days[0]), 0));
+    $('chartSummary').innerHTML = parts.join('');
+  }
+
   function renderChart() {
     var canvas = $('chart');
     if (!canvas) return;
@@ -1206,6 +1569,7 @@ h1 {
     var labels = [], data = [], chartType = 'line', name = label(mode);
 
     if (chart) { chart.destroy(); chart = null; }
+    $('chartSummary').innerHTML = '';
 
     // Helper: Monday-anchored week start (YYYY-MM-DD) for a given YYYY-MM-DD string
     function weekStartOf(dateStr) {
@@ -1214,12 +1578,12 @@ h1 {
       var dow = d.getDay(); // 0=Sun..6=Sat
       var offsetToMon = (dow + 6) % 7; // 0 if Mon, 6 if Sun
       d.setDate(d.getDate() - offsetToMon);
-      return d.toISOString().slice(0, 10);
+      return localDate(d);
     }
     function addDays(dateStr, n) {
       var d = new Date(dateStr + 'T00:00:00');
       d.setDate(d.getDate() + n);
-      return d.toISOString().slice(0, 10);
+      return localDate(d);
     }
     function shortWeekLabel(dateStr) {
       var d = new Date(dateStr + 'T00:00:00');
@@ -1336,6 +1700,57 @@ h1 {
           ]
         }
       };
+    } else if (mode === 'weight') {
+      // One point per day (the last weigh-in that day), plus a 7-day average
+      // that smooths out day-to-day noise from the scale.
+      var byDay = {};
+      rs.forEach(function (r) {
+        if (r.weight !== '' && r.weight != null && isFinite(Number(r.weight))) byDay[r.date] = Number(r.weight);
+      });
+      var wDays = Object.keys(byDay).sort();
+      var wValues = wDays.map(function (d) { return byDay[d]; });
+      var wAvg = wDays.map(function (d, i) {
+        var start = new Date(d + 'T00:00:00');
+        start.setDate(start.getDate() - 6);
+        var from = localDate(start);
+        var sum = 0, n = 0;
+        for (var j = i; j >= 0 && wDays[j] >= from; j--) { sum += wValues[j]; n++; }
+        return Math.round(sum / n * 100) / 100;
+      });
+      labels = wDays.map(formatDate);
+      data = wValues;
+      if (wDays.length) {
+        var showAvg = wDays.length >= 5;
+        var dense = wDays.length > 40;
+        var wSets = [{
+          label: 'Daily weight',
+          data: wValues,
+          borderColor: showAvg ? 'rgba(107, 142, 90, .45)' : '#6b8e5a',
+          backgroundColor: 'rgba(107, 142, 90, .08)',
+          borderWidth: showAvg ? 1.5 : 2,
+          fill: !showAvg,
+          tension: 0.25,
+          pointRadius: dense ? 0 : 3,
+          pointHoverRadius: 4,
+          pointBackgroundColor: '#6b8e5a',
+          pointBorderColor: 'white',
+          pointBorderWidth: 1
+        }];
+        if (showAvg) {
+          wSets.push({
+            label: '7-day average',
+            data: wAvg,
+            borderColor: '#c2613f',
+            borderWidth: 2.5,
+            fill: false,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 4
+          });
+        }
+        chartConfig = { type: 'line', data: { labels: labels, datasets: wSets } };
+        renderWeightSummary(wDays, wValues, wAvg);
+      }
     } else {
       rs.forEach(function (r) {
         if (r[mode] !== '' && r[mode] != null) {
@@ -1387,7 +1802,7 @@ h1 {
       };
     }
 
-    var showLegend = mode === 'gi-weekly';
+    var showLegend = mode === 'gi-weekly' || (mode === 'weight' && chartConfig.data.datasets.length > 1);
 
     chartConfig.options = {
       responsive: true,
@@ -1569,9 +1984,16 @@ h1 {
   function handleRecordSubmit(e) {
     e.preventDefault();
     if (!activePetId) return toast('Add a pet first');
+    // When editing, the log stays with the pet it belongs to, even if a
+    // different pet has been selected since Edit was tapped.
+    var existing = editingLogId ? state.records.find(function (r) { return r.id === editingLogId; }) : null;
+    if (editingLogId && !existing) {
+      clearRecordForm();
+      return toast('This log was deleted on another device');
+    }
     var record = {
       id: editingLogId || uid(),
-      petId: activePetId,
+      petId: existing ? existing.petId : activePetId,
       date: $('rDate').value || today(),
       type: $('rType').value,
       mood: num($('rMood').value),
@@ -1582,6 +2004,9 @@ h1 {
       med: $('rMed').value.trim(),
       note: $('rNote').value.trim()
     };
+    // When it was logged, shown on the Today checklist. Edits keep the original.
+    if (existing) { if (existing.loggedAt) record.loggedAt = existing.loggedAt; }
+    else record.loggedAt = new Date().toISOString();
     if (editingLogId) {
       state.records = state.records.map(function (r) { return r.id === editingLogId ? record : r; });
       toast('Log updated');
@@ -1610,6 +2035,7 @@ h1 {
     $('rFood').value = r.food || '';
     $('rMed').value = r.med || '';
     $('rNote').value = r.note || '';
+    updateFieldVisibility();
     $('formTitle').textContent = 'Edit log';
     $('formHint').textContent = 'Editing existing entry';
     $('submitBtn').textContent = 'Save changes';
@@ -1634,8 +2060,10 @@ h1 {
     editingLogId = null;
     $('rId').value = '';
     ['rMood', 'rWeight', 'rActivity', 'rCost', 'rFood', 'rMed', 'rNote'].forEach(function (id) { $(id).value = ''; });
-    $('rDate').valueAsDate = new Date();
+    $('rDate').value = today();
     $('rType').value = 'weight';
+    showAllFields = false;
+    updateFieldVisibility();
     $('formTitle').textContent = 'Add health log';
     $('formHint').textContent = 'All fields optional';
     $('submitBtn').textContent = 'Add log';
@@ -1741,7 +2169,7 @@ h1 {
     modalTitle.textContent = 'More';
     modalBody.innerHTML =
       '<div class="menu-list">' +
-        '<button class="menu-item" id="miAuth" type="button"><span class="menu-icon">☁</span>' + (syncCode ? 'Cloud sync · ' + syncCode : 'Set up cloud sync') + '</button>' +
+        '<button class="menu-item" id="miAuth" type="button"><span class="menu-icon">☁</span>' + (syncCode ? 'Cloud sync · ' + esc(syncCode) : 'Set up cloud sync') + '</button>' +
         '<button class="menu-item" id="miAddPet" type="button"><span class="menu-icon">🐾</span>Add pet</button>' +
         '<button class="menu-item" id="miImport" type="button"><span class="menu-icon">⬆</span>Import JSON</button>' +
         '<button class="menu-item" id="miExportCsv" type="button"><span class="menu-icon">📊</span>Export CSV</button>' +
@@ -2054,7 +2482,12 @@ h1 {
     return Array.from(arr).map(function (b) { return chars[b % 32]; }).join('');
   }
   function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
-  function today() { return new Date().toISOString().slice(0, 10); }
+  // Dates are the device's local calendar day. toISOString() and valueAsDate use
+  // UTC, which in the US evening is already tomorrow.
+  function localDate(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function today() { return localDate(new Date()); }
   function num(v) { return v === '' || v == null ? '' : Number(v); }
   function byDate(a, b) { return String(a.date).localeCompare(String(b.date)); }
   function avg(a) { return a.reduce(function (x, y) { return x + y; }, 0) / a.length; }
