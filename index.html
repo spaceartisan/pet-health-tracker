@@ -351,13 +351,14 @@ h1 {
   line-height: 1.05;
   letter-spacing: -.02em;
   font-variation-settings: "opsz" 144;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   display: flex;
+  flex-wrap: wrap;       /* buttons drop below the name when there isn't room */
   align-items: center;
-  gap: 8px;
+  gap: 6px 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .hero-name .edit-pet {
   font-family: var(--sans);
   font-size: 12px;
@@ -516,10 +517,13 @@ h1 {
   font-weight: 600;
   font-size: 15px;
   display: flex;
+  flex-wrap: wrap;       /* pills move to the next line whole, never break mid-word */
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
 }
 .type-pill {
+  white-space: nowrap;
+  overflow-wrap: normal;
   font-family: var(--sans);
   font-size: 10px;
   font-weight: 600;
@@ -973,6 +977,12 @@ h1 {
 .label-chip.suggested { border-style: dashed; color: var(--muted); }
 .label-chip.symptom-label[aria-pressed="true"] { background: var(--pill-symptom-bg); color: var(--pill-symptom-fg); }
 .label-chip.play-label[aria-pressed="true"], .size-btn[aria-pressed="true"] { background: var(--pill-activity-bg); color: var(--pill-activity-fg); }
+.label-chip.vomit-label[aria-pressed="true"] { background: var(--pill-vomit-bg); color: var(--pill-vomit-fg); }
+.label-chip.stool-label[aria-pressed="true"] { background: var(--pill-diarrhea-bg); color: var(--pill-diarrhea-fg); }
+.vet-btn[aria-pressed="true"] { background: var(--pill-vet-bg); color: var(--pill-vet-fg); }
+.type-pill.stool { background: var(--pill-diarrhea-bg); color: var(--pill-diarrhea-fg); }
+.tag-chip.stool[aria-pressed="true"] { background: var(--pill-diarrhea-bg); color: var(--pill-diarrhea-fg); }
+.vet-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .label-chip .remove { margin-left: 4px; font-weight: 700; }
 .size-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .size-btn { justify-content: center; }
@@ -986,6 +996,18 @@ h1 {
 .import-note { font-size: 13px; color: var(--ink-2); margin: 10px 0 4px; }
 .import-list { margin: 4px 0 0; padding-left: 20px; font-size: 13px; color: var(--ink-2); }
 .import-error { padding: 12px; border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-line); }
+
+/* ============ ROUTINE MOOD BUTTONS ============ */
+.mood-row { display: flex; gap: 4px; }
+.mood-btn { min-height: 34px; min-width: 34px; padding: 0; border-radius: 999px; background: var(--bg-2); color: var(--ink); font-size: 13px; }
+.mood-btn:hover { background: var(--sage); color: var(--on-accent); }
+@media (max-width: 420px) { .mood-btn { min-width: 30px; min-height: 30px; } }
+
+/* ============ ADD TO LAST LOG ============ */
+#recordForm .form-actions { grid-template-columns: 1fr 1fr auto; }
+.append-hint { font-size: 12px; color: var(--muted); margin: 0; }
+.append-hint[hidden], #appendBtn[hidden] { display: none; }
+#appendBtn:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ============ CHART CONTROLS ============ */
 .chart-card .section-h { flex-wrap: wrap; }
@@ -1278,7 +1300,7 @@ body.vr-open { overflow: hidden; }
         <div class="workspace">
           <section class="record-form card">
             <div class="section-h">
-              <h2 id="formTitle">Add health log</h2>
+              <h2 id="formTitle">Add a log</h2>
               <span class="hint" id="formHint">All fields optional</span>
             </div>
             <form id="recordForm" autocomplete="off">
@@ -1287,7 +1309,7 @@ body.vr-open { overflow: hidden; }
               <div class="tag-chips" id="rTags" role="group" aria-label="Event tags">
                 <button type="button" class="tag-chip symptom" data-tag="symptom" aria-pressed="false">Symptom</button>
                 <button type="button" class="tag-chip vomit" data-tag="vomit" aria-pressed="false">Vomit</button>
-                <button type="button" class="tag-chip diarrhea" data-tag="diarrhea" aria-pressed="false">Diarrhea</button>
+                <button type="button" class="tag-chip stool" data-tag="stool" aria-pressed="false">Stool</button>
                 <button type="button" class="tag-chip activity" data-tag="activity" aria-pressed="false">Activity</button>
                 <button type="button" class="tag-chip vet" data-tag="vet" aria-pressed="false">Vet visit</button>
               </div>
@@ -1298,8 +1320,8 @@ body.vr-open { overflow: hidden; }
                   <select id="weightUnit" class="unit-select" aria-label="Weight unit"><option value="lboz">lb &amp; oz</option><option value="lb">lb</option><option value="kg">kg</option></select></span>
                   <span class="weight-inputs"><input type="number" step="any" min="0" id="rWeight" inputmode="decimal" placeholder="lb">
                   <input type="number" step="any" min="0" id="rWeightOz" inputmode="decimal" placeholder="oz" aria-label="Ounces"></span></label>
-                <label class="field">Mood<input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
-                <label class="field">Food<input id="rFood" list="foodOptions" placeholder="meal / brand"></label>
+                <label class="field"><span class="field-head">Mood <button type="button" class="star" id="starMood" title="Log mood every day" aria-label="Log mood every day" aria-pressed="false">☆</button></span><input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
+                <label class="field"><span class="field-head">Food <button type="button" class="star" id="starFood" title="Log food every day" aria-label="Log food every day" aria-pressed="false">☆</button></span><input id="rFood" list="foodOptions" placeholder="meal / brand"></label>
                 <label class="field">Activity<input type="number" id="rActivity" inputmode="numeric" placeholder="min"></label>
                 <label class="field">Cost<input type="number" step="0.01" id="rCost" inputmode="decimal" placeholder="$"></label>
               </div>
@@ -1310,8 +1332,10 @@ body.vr-open { overflow: hidden; }
               <label class="field">Note<textarea id="rNote" placeholder="Symptoms, appetite, behavior, vet instructions…"></textarea></label>
               <datalist id="medOptions"></datalist>
               <datalist id="foodOptions"></datalist>
+              <p class="append-hint" id="appendHint"></p>
               <div class="form-actions">
                 <button type="submit" class="sage" id="submitBtn">Add log</button>
+                <button type="button" id="appendBtn" class="secondary">Add to last log</button>
                 <button type="button" id="clearForm" class="ghost">Clear</button>
               </div>
             </form>
@@ -1332,8 +1356,9 @@ body.vr-open { overflow: hidden; }
                   <option value="weight">Weight</option>
                   <option value="mood">Mood</option>
                   <option value="activity">Activity minutes</option>
-                  <option value="play-weekly">Play (weekly)</option>
+                  <option value="play-weekly">Activity (weekly)</option>
                   <option value="symptom-weekly">Symptoms (weekly)</option>
+                  <option value="stool-weekly">Stool (weekly)</option>
                   <option value="cost">Cost</option>
                   <option value="vomit-weekly">Vomit (weekly)</option>
                   <option value="diarrhea-weekly">Diarrhea (weekly)</option>
@@ -1403,7 +1428,7 @@ body.vr-open { overflow: hidden; }
   var STORAGE_KEY = 'petHealth.responsive.v120';
   // Event tags a user picks. Everything else about a log (weight, medication,
   // meal) is derived from the data it holds — see kindsOf().
-  var TAGS = ['symptom', 'vomit', 'diarrhea', 'activity', 'vet'];
+  var TAGS = ['symptom', 'vomit', 'stool', 'activity', 'vet'];
   // App version, for keeping out-of-date copies of the app from damaging data.
   // Every cloud save carries it (_v) plus a fresh write stamp (_w), and the
   // Firestore rules reject saves below their minimum version. Logs also carry
@@ -1414,7 +1439,7 @@ body.vr-open { overflow: hidden; }
   //   2. Push, and wait until the new version is live on GitHub Pages.
   //   3. Bump minVersion() in the Firestore rules to match, then Publish.
   // Updates that don't need this can be pushed without changing any of them.
-  var DATA_VERSION = 3; // 3: logs can carry symptom labels, play size and play labels
+  var DATA_VERSION = 4; // 3: symptom/play labels and play size. 4: Diarrhea became Stool; vomit/stool labels; vet visit type
   var newerDataSeen = false;
   var updateNotice = '';   // message for the reload banner, if any
   var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
@@ -1425,9 +1450,23 @@ body.vr-open { overflow: hidden; }
     symptom: ['Restless', 'Begging for food', 'Hiding', 'Scratching', 'Sneezing'],
     play: ['Chasing a toy', 'Zoomies', 'Climbing', 'Wand toy']
   };
-  var formLabels = { symptom: [], play: [] };
+  // Quick-label kinds: which tag shows them, where the pet's own labels and a
+  // log's chosen labels are stored, and fixed options that are always offered.
+  var LABEL_KINDS = {
+    symptom: { tag: 'symptom', petKey: 'symptomLabels', logKey: 'symptoms', title: 'What kind of symptom?', noun: 'symptom' },
+    vomit: { tag: 'vomit', petKey: 'vomitLabels', logKey: 'vomitKinds', title: 'What came up?', noun: 'vomit',
+      presets: ['Hairball', 'Food', 'Bile/foam', 'Liquid'] },
+    stool: { tag: 'stool', petKey: 'stoolLabels', logKey: 'stoolKinds', title: 'What was it like?', noun: 'stool',
+      presets: ['Normal', 'Soft', 'Diarrhea', 'Hard', 'Blood', 'Mucus'] },
+    play: { tag: 'activity', petKey: 'playLabels', logKey: 'playKinds', title: 'What kind of play?', noun: 'play' }
+  };
+  var VET_TYPES = { scheduled: 'Scheduled', unscheduled: 'Unscheduled', emergency: 'Emergency' };
+  // Routine items there's one of per pet (medicines can be several). Read while loading saved data.
+  var ROUTINE_SINGLES = { weight: 'Weigh-in', food: 'Food', mood: 'Mood' };
+  var formLabels = { symptom: [], vomit: [], stool: [], play: [] };
   var formPlaySize = '';
-  var labelEditMode = { symptom: false, play: false };
+  var formVetType = '';
+  var labelEditMode = { symptom: false, vomit: false, stool: false, play: false };
   // Color themes (used by the picker further down; defined here because startup reads it)
   var THEMES = [
     { id: 'garden', name: 'Garden', about: 'Warm cream and sage (default)', page: '#f7f3ec', swatch: ['#f7f3ec', '#6b8e5a', '#c2613f'] },
@@ -1470,8 +1509,12 @@ body.vr-open { overflow: hidden; }
   $('addPetBtn').addEventListener('click', openAddPetModal);
   $('recordForm').addEventListener('submit', handleRecordSubmit);
   $('clearForm').addEventListener('click', clearRecordForm);
+  $('appendBtn').addEventListener('click', appendToLastLog);
+  $('rDate').addEventListener('change', renderAppendHint);
   $('addMedRow').addEventListener('click', function () { addMedRow('', '').querySelector('.med-name').focus(); });
   $('starWeight').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'weight' }); });
+  $('starFood').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'food', note: $('rFood').value }); });
+  $('starMood').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'mood' }); });
   $('weightUnit').addEventListener('change', function () { setWeightUnit($('weightUnit').value); });
   applyWeightUnitToForm();
   $('rTags').querySelectorAll('.tag-chip').forEach(function (b) {
@@ -1561,6 +1604,7 @@ body.vr-open { overflow: hidden; }
   function render() {
     renderUpdateBanner();
     renderLabelPanel();
+    renderAppendHint();
     renderPets();
     renderSummary();
     renderToday();
@@ -1609,10 +1653,10 @@ body.vr-open { overflow: hidden; }
       return;
     }
     $('heroIcon').textContent = p.icon || '🐾';
-    $('heroName').innerHTML = esc(p.name) +
-      ' <button class="edit-pet" type="button" id="vetSummaryBtn">🩺 Vet summary</button>' +
-      ' <button class="edit-pet" type="button" id="editPetBtn">Edit</button>' +
-      ' <button class="edit-pet danger-action" type="button" id="deletePetBtn">Delete</button>';
+    $('heroName').innerHTML = '<span>' + esc(p.name) + '</span><span class="hero-actions">' +
+      '<button class="edit-pet" type="button" id="vetSummaryBtn">🩺 Vet summary</button>' +
+      '<button class="edit-pet" type="button" id="editPetBtn">Edit</button>' +
+      '<button class="edit-pet danger-action" type="button" id="deletePetBtn">Delete</button></span>';
     $('editPetBtn').addEventListener('click', function () { openEditPetModal(p); });
     $('vetSummaryBtn').addEventListener('click', openVetSummaryDialog);
     $('deletePetBtn').addEventListener('click', function () { confirmDeletePet(p); });
@@ -1640,7 +1684,7 @@ body.vr-open { overflow: hidden; }
     cutoffDay.setDate(cutoffDay.getDate() - 14);
     var giCutoff = localDate(cutoffDay);
     var recentVomit = rs.filter(function (r) { return hasTag(r, 'vomit') && r.date >= giCutoff; }).length;
-    var recentDiarrhea = rs.filter(function (r) { return hasTag(r, 'diarrhea') && r.date >= giCutoff; }).length;
+    var recentDiarrhea = rs.filter(function (r) { return isDiarrhea(r) && r.date >= giCutoff; }).length;
     if (recentVomit) notes.push(recentVomit + ' vomit episode' + (recentVomit === 1 ? '' : 's') + ' in the last 14 days.');
     if (recentDiarrhea) notes.push(recentDiarrhea + ' diarrhea episode' + (recentDiarrhea === 1 ? '' : 's') + ' in the last 14 days.');
     var vets = rs.filter(function (r) { return hasTag(r, 'vet'); }).length;
@@ -1676,6 +1720,9 @@ body.vr-open { overflow: hidden; }
       if (r.playSize) bits.push(esc(PLAY_SIZES[r.playSize] || r.playSize) + ' play');
       (r.playKinds || []).forEach(function (k) { bits.push(esc(k)); });
       (r.symptoms || []).forEach(function (k) { bits.push(esc(k)); });
+      (r.vomitKinds || []).forEach(function (k) { bits.push(esc(k)); });
+      (r.stoolKinds || []).forEach(function (k) { bits.push(esc(k)); });
+      if (VET_TYPES[r.vetType]) bits.push(esc(VET_TYPES[r.vetType]) + ' visit');
       var kinds = kindsOf(r);
       var pills = kinds.length
         ? kinds.map(function (k) { return '<span class="type-pill ' + esc(k) + '">' + esc(label(k)) + '</span>'; }).join('')
@@ -1732,34 +1779,41 @@ body.vr-open { overflow: hidden; }
     });
     return best;
   }
+  function isMedItem(it) { return !ROUTINE_SINGLES[it.kind]; }
+  function routineTitle(it) { return ROUTINE_SINGLES[it.kind] || it.med; }
   function routineItemFor(pet, kind, med) {
     return (pet.routine || []).find(function (it) {
-      return kind === 'weight' ? it.kind === 'weight' : (it.kind !== 'weight' && normName(it.med) === normName(med));
+      return ROUTINE_SINGLES[kind] ? it.kind === kind : (isMedItem(it) && normName(it.med) === normName(med));
     });
+  }
+  // The most recent food logged for a pet, as the food item's default
+  function lastFood(petId) {
+    var f = '';
+    state.records.forEach(function (r) { if (r.petId === petId && r.food) f = r.food; });
+    return f;
   }
   // Add or remove a daily item. item: { kind: 'weight' } or { kind: 'medication', med, note }.
   function toggleRoutine(pet, item) {
     if (!pet) return toast('Add a pet first');
-    var isWeight = item.kind === 'weight';
+    var single = ROUTINE_SINGLES[item.kind];
     var existing = routineItemFor(pet, item.kind, item.med);
     if (existing) {
       pet.routine = pet.routine.filter(function (it) { return it !== existing; });
-      toast((isWeight ? 'Weigh-in' : existing.med) + ' removed from daily routine');
+      toast(routineTitle(existing) + ' removed from daily routine');
     } else {
       var name = String(item.med || '').trim().replace(/\s+/g, ' ');
-      if (!isWeight && !name) return toast('Enter a medicine name first');
-      pet.routine = (pet.routine || []).concat([isWeight
-        ? { id: uid(), kind: 'weight' }
-        : { id: uid(), kind: 'medication', med: name, note: String(item.note || '').trim() || lastMedNote(state.records, pet.id, name) }]);
+      if (!single && !name) return toast('Enter a medicine name first');
+      var entry = item.kind === 'weight' ? { id: uid(), kind: 'weight' }
+        : item.kind === 'mood' ? { id: uid(), kind: 'mood' }
+        : item.kind === 'food' ? { id: uid(), kind: 'food', note: String(item.note || '').trim() || lastFood(pet.id) }
+        : { id: uid(), kind: 'medication', med: name, note: String(item.note || '').trim() || lastMedNote(state.records, pet.id, name) };
+      pet.routine = (pet.routine || []).concat([entry]);
       delete pet.sample; // a demo pet with a routine is now the user's own
-      toast((isWeight ? 'Weigh-in' : name) + ' added to daily routine');
+      toast((single || name) + ' added to daily routine');
     }
     save();
     render();
   }
-
-  // Pair each routine item with the part of today's logs that covers it. Logs
-  // made through the normal form count too, so nothing is logged twice.
   function routineStatus(pet) {
     var t = today();
     var todays = state.records.filter(function (r) { return r.petId === pet.id && r.date === t; });
@@ -1768,8 +1822,9 @@ body.vr-open { overflow: hidden; }
       var match = null;
       for (var i = 0; i < todays.length && !match; i++) {
         var r = todays[i];
-        if (item.kind === 'weight') {
-          if (has(r.weight) && !used[r.id + ':w']) { used[r.id + ':w'] = true; match = { log: r, med: null }; }
+        if (ROUTINE_SINGLES[item.kind]) {
+          var f = item.kind; // 'weight', 'food' or 'mood': the field of the same name
+          if (has(r[f]) && !used[r.id + ':' + f]) { used[r.id + ':' + f] = true; match = { log: r, med: null }; }
           continue;
         }
         for (var j = 0; j < r.meds.length; j++) {
@@ -1793,7 +1848,7 @@ body.vr-open { overflow: hidden; }
     if (!rows.length) {
       var suggestions = suggestMeds(p);
       list.innerHTML =
-        '<p class="routine-intro">Tap ★ next to a medicine or the weight field in the log form and it will appear here every day, ready to log with one tap.</p>' +
+        '<p class="routine-intro">Tap ★ next to a medicine, or the weight, food or mood field in the log form, and it will appear here every day, ready to log with one tap.</p>' +
         (suggestions.length
           ? '<p class="small-label" style="margin-top:0">Given often lately</p><div class="chip-row" style="margin-bottom:0">' + suggestions.map(function (m, i) {
               return '<button class="chip" type="button" data-suggest="' + i + '">★ ' + esc(m) + '</button>';
@@ -1826,14 +1881,15 @@ body.vr-open { overflow: hidden; }
     list.innerHTML =
       '<div class="routine-list">' + rows.map(function (row, i) {
         var it = row.item, log = row.log;
-        var isWeight = it.kind === 'weight';
-        var title = isWeight ? 'Weigh-in' : esc(it.med);
+        var isWeight = it.kind === 'weight', isMood = it.kind === 'mood', isFood = it.kind === 'food';
+        var title = esc(routineTitle(it));
         var stop = '<button class="star" data-stop="' + i + '" type="button" title="Stop repeating daily" aria-label="Stop repeating daily" aria-pressed="true">★</button>';
         if (log) {
           var at = (row.med && row.med.at) || log.loggedAt;
-          var sub = (isWeight ? esc(fmtWeight(log.weight)) + ' · ' : '') + (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
+          var sub = (isWeight ? esc(fmtWeight(log.weight)) + ' · ' : isMood ? 'Mood ' + esc(log.mood) + '/5 · ' : '') +
+            (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
           // Older single-medicine logs kept the dose in the log's own note.
-          var desc = isWeight ? '' : (row.med.note || (!log.routine && log.meds.length === 1 ? log.note : ''));
+          var desc = isWeight || isMood ? '' : isFood ? log.food : (row.med.note || (!log.routine && log.meds.length === 1 ? log.note : ''));
           return '<div class="routine-row done">' +
             '<div class="routine-check" aria-hidden="true">✓</div>' +
             '<div class="routine-main"><b>' + title + '</b>' +
@@ -1861,13 +1917,17 @@ body.vr-open { overflow: hidden; }
                     ' value="' + esc(draftOr(it, 'weightOz', '')) + '">'
                   : '')
               : '') +
-            '<button class="sage tiny" data-log="' + i + '" type="button">Log</button>' + stop +
+            (isMood
+              ? '<span class="mood-row" role="group" aria-label="Mood, 1 to 5">' + [1, 2, 3, 4, 5].map(function (n) {
+                  return '<button class="mood-btn" type="button" data-mood-row="' + i + '" data-mood="' + n + '" aria-label="Mood ' + n + ' of 5">' + n + '</button>';
+                }).join('') + '</span>'
+              : '<button class="sage tiny" data-log="' + i + '" type="button">Log</button>') + stop +
           '</div>' +
-          (isWeight ? '' :
+          (isWeight || isMood ? '' :
             '<div class="routine-desc-wrap">' +
               '<input class="routine-desc-input" data-row="' + i + '" data-field="note" data-draft="' + esc(noteKey) + '"' +
                 ' value="' + esc(draftOr(it, 'note', it.note || '')) + '"' +
-                ' placeholder="Dose / note (optional)" aria-label="Note for ' + esc(it.med) + '">' +
+                ' placeholder="' + (isFood ? 'Food / amount' : 'Dose / note (optional)') + '" aria-label="' + (isFood ? 'Food' : 'Note for ' + esc(it.med)) + '">' +
               // Shown once the dose differs from the saved default
               '<button class="ghost tiny" data-default="' + i + '" type="button"' +
                 (String(draftOr(it, 'note', it.note || '')).trim() === String(it.note || '').trim() ? ' hidden' : '') +
@@ -1900,6 +1960,13 @@ body.vr-open { overflow: hidden; }
     list.querySelectorAll('[data-log]').forEach(function (b) {
       b.addEventListener('click', function () { logRoutineItems(p.id, [entry(Number(b.getAttribute('data-log')))], false); });
     });
+    list.querySelectorAll('[data-mood]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var en = entry(Number(b.getAttribute('data-mood-row')));
+        en.mood = Number(b.getAttribute('data-mood'));
+        logRoutineItems(p.id, [en], false);
+      });
+    });
     list.querySelectorAll('[data-undo]').forEach(function (b) {
       b.addEventListener('click', function () { undoRoutineLog(rows[Number(b.getAttribute('data-undo'))]); });
     });
@@ -1918,13 +1985,13 @@ body.vr-open { overflow: hidden; }
         delete routineDrafts[p.id + ':' + item.id + ':note'];
         save();
         render();
-        toast('New default dose for ' + item.med);
+        toast('New default for ' + routineTitle(item));
       });
     });
     list.querySelectorAll('[data-stop]').forEach(function (b) {
       b.addEventListener('click', function () {
         var it = rows[Number(b.getAttribute('data-stop'))].item;
-        var what = it.kind === 'weight' ? 'the daily weigh-in' : it.med;
+        var what = it.kind === 'weight' ? 'the daily weigh-in' : it.kind === 'food' ? 'daily food' : it.kind === 'mood' ? 'daily mood' : it.med;
         // Sits right beside Log, so confirm rather than remove on a stray tap.
         if (!confirm('Stop showing ' + what + ' every day?\n\nToday\'s log isn\'t affected. You can add it back with ★ in the log form.')) return;
         toggleRoutine(p, { kind: it.kind, med: it.med });
@@ -1950,7 +2017,7 @@ body.vr-open { overflow: hidden; }
   // a weigh-in left blank is skipped instead of blocking the others.
   function logRoutineItems(petId, entries, lenient) {
     var now = new Date().toISOString();
-    var meds = [], weight = '';
+    var meds = [], weight = '', food = '', mood = '';
     for (var i = 0; i < entries.length; i++) {
       var en = entries[i], it = en.item;
       if (it.kind === 'weight') {
@@ -1959,11 +2026,18 @@ body.vr-open { overflow: hidden; }
           return toast('Enter a weight first');
         }
         weight = Number(en.weight);
+      } else if (it.kind === 'food') {
+        var fd = String(en.note || '').trim();
+        if (!fd) { if (lenient) continue; return toast('Enter the food first'); }
+        food = fd;
+      } else if (it.kind === 'mood') {
+        if (!(en.mood >= 1 && en.mood <= 5)) continue; // logged with its own 1–5 buttons
+        mood = en.mood;
       } else {
         meds.push({ name: it.med, note: String(en.note || '').trim(), at: now });
       }
     }
-    if (!meds.length && weight === '') return toast('Enter a weight first');
+    if (!meds.length && weight === '' && food === '' && mood === '') return toast('Nothing to log yet');
     var target = todayRecordFor(petId);
     if (!target) {
       target = blankRecord(petId, today());
@@ -1972,12 +2046,13 @@ body.vr-open { overflow: hidden; }
       state.records.push(target);
     }
     target.meds = target.meds.concat(meds);
-    if (weight !== '') {
-      // A second weigh-in keeps its own log so both readings survive.
-      var w = target;
-      if (has(w.weight)) { w = blankRecord(petId, today()); w.loggedAt = now; w.routine = true; state.records.push(w); }
-      w.weight = weight;
-    }
+    // A second weigh-in (or food, or mood) keeps its own log so both survive.
+    [['weight', weight], ['food', food], ['mood', mood]].forEach(function (pair) {
+      if (pair[1] === '') return;
+      var t = target;
+      if (has(t[pair[0]])) { t = blankRecord(petId, today()); t.loggedAt = now; t.routine = true; state.records.push(t); }
+      t[pair[0]] = pair[1];
+    });
     // Logged: forget what was typed, so tomorrow starts from the default again.
     entries.forEach(function (en) {
       delete routineDrafts[petId + ':' + en.item.id + ':note'];
@@ -1986,8 +2061,11 @@ body.vr-open { overflow: hidden; }
     });
     save();
     render();
-    var n = meds.length + (weight !== '' ? 1 : 0);
-    toast(n === 1 ? (weight !== '' ? 'Weight logged' : meds[0].name + ' logged') : n + ' items logged');
+    var done = meds.map(function (m) { return m.name; });
+    if (weight !== '') done.push('Weight');
+    if (food !== '') done.push('Food');
+    if (mood !== '') done.push('Mood');
+    toast(done.length === 1 ? done[0] + ' logged' : done.length + ' items logged');
   }
   // Today's routine log for a pet: the latest log the routine itself created
   // today. Logs made through the form are never added to.
@@ -2001,7 +2079,7 @@ body.vr-open { overflow: hidden; }
   function undoRoutineLog(row) {
     var r = row.log;
     if (row.med) r.meds = r.meds.filter(function (m) { return m !== row.med; });
-    else r.weight = '';
+    else r[row.item.kind] = ''; // 'weight', 'food' or 'mood'
     if (isBlankRecord(r)) state.records = state.records.filter(function (x) { return x.id !== r.id; });
     save();
     render();
@@ -2057,7 +2135,7 @@ body.vr-open { overflow: hidden; }
     // Include routine medicines so they're suggested even before first logged
     state.pets.forEach(function (p) {
       (p.routine || []).forEach(function (it) {
-        if (it.kind !== 'weight' && !meds.some(function (m) { return normName(m) === normName(it.med); })) meds.push(it.med);
+        if (isMedItem(it) && it.med && !meds.some(function (m) { return normName(m) === normName(it.med); })) meds.push(it.med);
       });
     });
     $('medOptions').innerHTML = meds.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
@@ -2113,6 +2191,8 @@ body.vr-open { overflow: hidden; }
     var p = formPet();
     function set(btn, on) { btn.setAttribute('aria-pressed', on); btn.textContent = on ? '★' : '☆'; }
     set($('starWeight'), !!(p && routineItemFor(p, 'weight')));
+    set($('starFood'), !!(p && routineItemFor(p, 'food')));
+    set($('starMood'), !!(p && routineItemFor(p, 'mood')));
     $('medRows').querySelectorAll('.med-row').forEach(function (row) {
       set(row.querySelector('.star'), !!(p && routineItemFor(p, 'medication', row.querySelector('.med-name').value)));
     });
@@ -2188,7 +2268,7 @@ body.vr-open { overflow: hidden; }
   // pet.playLabels), so they sync like other pet details. A log stores the
   // ones picked (symptoms, playKinds) and a play size.
   function petLabelList(p, kind) {
-    return (p && (kind === 'symptom' ? p.symptomLabels : p.playLabels)) || [];
+    return (p && p[LABEL_KINDS[kind].petKey]) || [];
   }
   function tagPressed(tag) {
     var b = $('rTags').querySelector('[data-tag="' + tag + '"]');
@@ -2203,9 +2283,10 @@ body.vr-open { overflow: hidden; }
     if (!name) return;
     var p = formPet();
     if (!p) return;
-    var key = kind === 'symptom' ? 'symptomLabels' : 'playLabels';
+    var key = LABEL_KINDS[kind].petKey;
+    var presets = LABEL_KINDS[kind].presets || [];
     var list = (p[key] || []).slice();
-    var existingName = list.find(function (x) { return normName(x) === normName(name); });
+    var existingName = presets.concat(list).find(function (x) { return normName(x) === normName(name); });
     if (!existingName) { list.push(name); p[key] = list; save(); }
     if (!formLabels[kind].some(function (x) { return normName(x) === normName(name); })) formLabels[kind].push(existingName || name);
     renderLabelPanel();
@@ -2217,46 +2298,59 @@ body.vr-open { overflow: hidden; }
     var active = document.activeElement;
     var keep = active && panel.contains(active) && active.getAttribute('data-new-label')
       ? { kind: active.getAttribute('data-new-label'), value: active.value, start: active.selectionStart } : null;
-    function group(kind, title) {
+    function group(kind) {
+      var cfg = LABEL_KINDS[kind];
       var chosen = formLabels[kind];
-      var list = petLabelList(p, kind);
-      // Labels on this log that are no longer in the pet's list still show
+      var presets = cfg.presets || [];
+      var own = petLabelList(p, kind).filter(function (x) { return !presets.some(function (pr) { return normName(pr) === normName(x); }); });
+      var list = presets.concat(own);
+      // Labels on this log that are no longer offered still show
       chosen.forEach(function (c) { if (!list.some(function (x) { return normName(x) === normName(c); })) list = list.concat([c]); });
-      var chipClass = kind === 'symptom' ? 'symptom-label' : 'play-label';
       var editing = labelEditMode[kind];
       var chips = list.map(function (name) {
         var on = chosen.some(function (x) { return normName(x) === normName(name); });
-        return '<button type="button" class="tag-chip label-chip ' + chipClass + '" data-label-kind="' + kind + '" data-label="' + esc(name) + '" aria-pressed="' + on + '">' +
-          esc(name) + (editing ? '<span class="remove" aria-hidden="true">×</span>' : '') + '</button>';
+        var fixed = presets.some(function (pr) { return normName(pr) === normName(name); });
+        return '<button type="button" class="tag-chip label-chip ' + kind + '-label" data-label-kind="' + kind + '" data-label="' + esc(name) + '"' +
+          (fixed ? ' data-preset="1"' : '') + ' aria-pressed="' + on + '">' +
+          esc(name) + (editing && !fixed ? '<span class="remove" aria-hidden="true">×</span>' : '') + '</button>';
       }).join('');
-      var starters = list.length ? '' : LABEL_STARTERS[kind].map(function (name) {
+      // Suggestions until the pet has labels of its own (kinds without fixed options)
+      var starters = (presets.length || own.length) ? '' : (LABEL_STARTERS[kind] || []).map(function (name) {
         return '<button type="button" class="tag-chip label-chip suggested" data-starter-kind="' + kind + '" data-label="' + esc(name) + '">+ ' + esc(name) + '</button>';
       }).join('');
       return '<div class="label-group">' +
-        '<div class="label-group-head"><span>' + title + '</span>' +
-          (petLabelList(p, kind).length ? '<button type="button" class="ghost tiny" data-edit-labels="' + kind + '">' + (editing ? 'Done' : 'Edit labels') + '</button>' : '') +
+        '<div class="label-group-head"><span>' + cfg.title + '</span>' +
+          (own.length ? '<button type="button" class="ghost tiny" data-edit-labels="' + kind + '">' + (editing ? 'Done' : 'Edit labels') + '</button>' : '') +
         '</div>' +
         '<div class="tag-chips">' + chips + starters + '</div>' +
-        '<div class="new-label"><input data-new-label="' + kind + '" placeholder="New label" aria-label="New ' + (kind === 'symptom' ? 'symptom' : 'play') + ' label">' +
+        '<div class="new-label"><input data-new-label="' + kind + '" placeholder="New label" aria-label="New ' + cfg.noun + ' label">' +
           '<button type="button" class="secondary" data-add-label="' + kind + '">Add</button></div>' +
       '</div>';
     }
     var html = '';
-    if (tagPressed('symptom')) html += group('symptom', 'What kind of symptom?');
+    if (tagPressed('symptom')) html += group('symptom');
+    if (tagPressed('vomit')) html += group('vomit');
+    if (tagPressed('stool')) html += group('stool');
     if (tagPressed('activity')) {
       html += '<div class="label-group"><div class="label-group-head"><span>How big was the play?</span></div>' +
         '<div class="size-row">' + Object.keys(PLAY_SIZES).map(function (k) {
           return '<button type="button" class="tag-chip size-btn" data-size="' + k + '" aria-pressed="' + (formPlaySize === k) + '">' + PLAY_SIZES[k] + '</button>';
         }).join('') + '</div></div>';
-      html += group('play', 'What kind of play?');
+      html += group('play');
+    }
+    if (tagPressed('vet')) {
+      html += '<div class="label-group"><div class="label-group-head"><span>What kind of visit?</span></div>' +
+        '<div class="vet-row">' + Object.keys(VET_TYPES).map(function (k) {
+          return '<button type="button" class="tag-chip vet-btn" data-vettype="' + k + '" aria-pressed="' + (formVetType === k) + '">' + VET_TYPES[k] + '</button>';
+        }).join('') + '</div></div>';
     }
     panel.innerHTML = html;
     panel.querySelectorAll('[data-label-kind]').forEach(function (b) {
       b.addEventListener('click', function () {
         var kind = b.getAttribute('data-label-kind'), name = b.getAttribute('data-label');
-        if (labelEditMode[kind]) {
+        if (labelEditMode[kind] && !b.hasAttribute('data-preset')) {
           // Remove from this pet's list; logs that already use it keep it
-          var cur = formPet(), key = kind === 'symptom' ? 'symptomLabels' : 'playLabels';
+          var cur = formPet(), key = LABEL_KINDS[kind].petKey;
           if (cur) { cur[key] = (cur[key] || []).filter(function (x) { return normName(x) !== normName(name); }); save(); }
           formLabels[kind] = formLabels[kind].filter(function (x) { return normName(x) !== normName(name); });
         } else {
@@ -2275,6 +2369,13 @@ body.vr-open { overflow: hidden; }
       b.addEventListener('click', function () {
         var k = b.getAttribute('data-size');
         formPlaySize = formPlaySize === k ? '' : k;
+        renderLabelPanel();
+      });
+    });
+    panel.querySelectorAll('[data-vettype]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = b.getAttribute('data-vettype');
+        formVetType = formVetType === k ? '' : k;
         renderLabelPanel();
       });
     });
@@ -2401,11 +2502,12 @@ body.vr-open { overflow: hidden; }
     }
     // Build weekly buckets from earliest-relevant week (or N weeks back, whichever is older) through current week.
     // Returns { labels: [weekStart...], series: { typeKey: [counts...] } }
+    function matchesKind(r, t) { return t === 'diarrhea' ? isDiarrhea(r) : hasTag(r, t); }
     function buildWeeklyBuckets(typeKeys, minWeeks) {
       var nowWeek = weekStartOf(today());
       var earliest = null;
       rs.forEach(function (r) {
-        if (!typeKeys.some(function (t) { return hasTag(r, t); })) return;
+        if (!typeKeys.some(function (t) { return matchesKind(r, t); })) return;
         var ws = weekStartOf(r.date);
         if (ws && (!earliest || ws < earliest)) earliest = ws;
       });
@@ -2432,7 +2534,7 @@ body.vr-open { overflow: hidden; }
         var ws = weekStartOf(r.date);
         var idx = weeks.indexOf(ws);
         if (idx < 0) return;
-        typeKeys.forEach(function (t) { if (hasTag(r, t)) series[t][idx]++; });
+        typeKeys.forEach(function (t) { if (matchesKind(r, t)) series[t][idx]++; });
       });
       return { weeks: weeks, series: series };
     }
@@ -2475,11 +2577,13 @@ body.vr-open { overflow: hidden; }
           }]
         }
       };
-    } else if (mode === 'play-weekly' || mode === 'symptom-weekly') {
+    } else if (mode === 'play-weekly' || mode === 'symptom-weekly' || mode === 'stool-weekly') {
       // Play sessions per week stacked by size, or symptom logs per week
       // stacked by label (the four most common get their own color).
       var isPlay = mode === 'play-weekly';
-      var events = rs.filter(function (r) { return hasTag(r, isPlay ? 'activity' : 'symptom'); });
+      var labelTag = mode === 'stool-weekly' ? 'stool' : 'symptom';
+      var labelsOf = function (r) { return (mode === 'stool-weekly' ? r.stoolKinds : r.symptoms) || []; };
+      var events = rs.filter(function (r) { return hasTag(r, isPlay ? 'activity' : labelTag); });
       var alpha = function (hex, a) {
         var m = /^#([0-9a-f]{6})$/i.exec(String(hex).trim());
         if (!m) return hex;
@@ -2495,7 +2599,7 @@ body.vr-open { overflow: hidden; }
       } else {
         var tally = {}, spelled = {};
         events.forEach(function (r) {
-          (r.symptoms || []).forEach(function (l) { var k = normName(l); tally[k] = (tally[k] || 0) + 1; spelled[k] = l; });
+          labelsOf(r).forEach(function (l) { var k = normName(l); tally[k] = (tally[k] || 0) + 1; spelled[k] = l; });
         });
         var top = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; }).slice(0, 4);
         var palette = [C.avg, C.accent, C.diarrheaLine, C.legend];
@@ -2504,7 +2608,7 @@ body.vr-open { overflow: hidden; }
         names.other = 'Other labels'; colors.other = alpha(C.text, .5);
         names.none = 'No label'; colors.none = alpha(C.text, .25);
         keyOf = function (r) {
-          var ks = (r.symptoms || []).map(function (l) { var k = normName(l); return top.indexOf(k) >= 0 ? k : 'other'; });
+          var ks = labelsOf(r).map(function (l) { var k = normName(l); return top.indexOf(k) >= 0 ? k : 'other'; });
           ks = ks.filter(function (k, i) { return ks.indexOf(k) === i; });
           return ks.length ? ks : ['none'];
         };
@@ -2527,7 +2631,7 @@ body.vr-open { overflow: hidden; }
       keys = keys.filter(function (k) { return series[k].some(function (n) { return n > 0; }); });
       labels = wks.map(shortWeekLabel);
       chartType = 'bar';
-      name = isPlay ? 'Play' : 'Symptoms';
+      name = isPlay ? 'Activity' : mode === 'stool-weekly' ? 'Stool' : 'Symptoms';
       data = events.length ? [1] : []; // marks "has data" for the empty check
       chartConfig = {
         type: 'bar',
@@ -2642,7 +2746,7 @@ body.vr-open { overflow: hidden; }
       });
     }
 
-    var isStackedWeekly = mode === 'gi-weekly' || mode === 'play-weekly' || mode === 'symptom-weekly';
+    var isStackedWeekly = mode === 'gi-weekly' || mode === 'play-weekly' || mode === 'symptom-weekly' || mode === 'stool-weekly';
     var isWeeklyMode = mode === 'vomit-weekly' || mode === 'diarrhea-weekly' || isStackedWeekly;
 
     // Empty state: for weekly modes we always have padded labels (≥12 weeks),
@@ -2719,7 +2823,7 @@ body.vr-open { overflow: hidden; }
             title: function (items) { return 'Week of ' + (items[0] && items[0].label); },
             label: function (item) {
               var v = item.parsed.y;
-              var unit = mode === 'play-weekly' ? ['session', 'sessions'] : mode === 'symptom-weekly' ? ['log', 'logs'] : ['episode', 'episodes'];
+              var unit = mode === 'play-weekly' ? ['session', 'sessions'] : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? ['log', 'logs'] : ['episode', 'episodes'];
               return item.dataset.label + ': ' + v + ' ' + (v === 1 ? unit[0] : unit[1]);
             }
           } : undefined
@@ -2731,7 +2835,7 @@ body.vr-open { overflow: hidden; }
           stacked: isStackedWeekly,
           ticks: Object.assign({ precision: 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined }, weightTicks()),
           grid: { color: C.grid },
-          title: isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : mode === 'symptom-weekly' ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
+          title: isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
         },
         x: isTimeMode ? timeAxis() : {
           stacked: isStackedWeekly,
@@ -2912,6 +3016,98 @@ body.vr-open { overflow: hidden; }
   }
 
   // ===== LOG CRUD =====
+  // Everything filled in on the form, as a log. Returns null (with a message)
+  // if something doesn't make sense or nothing was entered.
+  function readForm(existing) {
+    var record = blankRecord(existing ? existing.petId : activePetId, $('rDate').value || today());
+    record.mood = num($('rMood').value);
+    record.weight = readWeight($('rWeight'), $('rWeightOz'));
+    if (typeof record.weight === 'number' && isNaN(record.weight)) { toast('Check the weight'); return null; }
+    record.activity = num($('rActivity').value);
+    record.cost = num($('rCost').value);
+    record.food = $('rFood').value.trim();
+    record.note = $('rNote').value.trim();
+    record.meds = readMedRows();
+    // Tags outside the chip set (kept from older data) survive an edit untouched.
+    record.tags = (existing ? existing.tags.filter(function (t) { return TAGS.indexOf(t) < 0; }) : []).concat(readTags());
+    // Labels, play size and visit type only count when their tag is chosen
+    Object.keys(LABEL_KINDS).forEach(function (kind) {
+      var cfg = LABEL_KINDS[kind];
+      record[cfg.logKey] = tagPressed(cfg.tag) ? formLabels[kind].slice() : [];
+    });
+    record.playSize = tagPressed('activity') ? formPlaySize : '';
+    record.vetType = tagPressed('vet') ? formVetType : '';
+    if (isBlankRecord(record)) { toast('Enter something to log'); return null; }
+    return record;
+  }
+
+  // The most recent log for a pet on a date (the one "Add to last log" adds to)
+  function lastLogFor(petId, date) {
+    var found = null;
+    state.records.forEach(function (r) { if (r.petId === petId && r.date === date) found = r; });
+    return found;
+  }
+  // Show which log "Add to last log" would add to, or why it can't
+  function renderAppendHint() {
+    var btn = $('appendBtn'), hint = $('appendHint');
+    var p = formPet();
+    var date = $('rDate').value || today();
+    var target = p && !editingLogId ? lastLogFor(p.id, date) : null;
+    btn.hidden = !!editingLogId;
+    btn.disabled = !target;
+    hint.hidden = !!editingLogId || !p;
+    if (!p) return;
+    var when = date === today() ? 'today' : formatDate(date);
+    hint.textContent = target
+      ? '"Add to last log" adds to ' + p.name + '\'s last log for ' + when + ' (' + (kindsOf(target).map(label).join(', ') || 'Note') + ').'
+      : 'No log for ' + p.name + ' ' + (date === today() ? 'today' : 'on ' + formatDate(date)) + ' yet, so "Add to last log" is off.';
+  }
+  // Combine what's on the form with the pet's most recent log for that date,
+  // instead of creating a new one. Asks before replacing any value.
+  function appendToLastLog() {
+    if (editingLogId) return;
+    var p = formPet();
+    if (!p) return toast('Add a pet first');
+    var date = $('rDate').value || today();
+    var target = lastLogFor(p.id, date);
+    if (!target) return toast('No log for ' + p.name + ' on ' + formatDate(date) + ' yet');
+    var add = readForm(null);
+    if (!add) return;
+    var conflicts = [];
+    function scalar(field, name, show) {
+      if (has(add[field]) && has(target[field]) && normName(add[field]) !== normName(target[field])) {
+        conflicts.push(name + ': ' + show(target[field]) + ' → ' + show(add[field]));
+      }
+    }
+    scalar('weight', 'Weight', function (v) { return fmtWeight(v); });
+    scalar('mood', 'Mood', function (v) { return v + '/5'; });
+    scalar('activity', 'Activity', function (v) { return v + ' min'; });
+    scalar('cost', 'Cost', function (v) { return '$' + v; });
+    scalar('food', 'Food', function (v) { return v; });
+    scalar('playSize', 'Play size', function (v) { return PLAY_SIZES[v] || v; });
+    scalar('vetType', 'Visit type', function (v) { return VET_TYPES[v] || v; });
+    if (conflicts.length && !confirm('That log already has:\n\n' + conflicts.join('\n') + '\n\nReplace with the new values?')) return;
+    ['weight', 'mood', 'activity', 'cost', 'food', 'playSize', 'vetType'].forEach(function (f) { if (has(add[f])) target[f] = add[f]; });
+    add.meds.forEach(function (m) {
+      var dup = target.meds.some(function (x) { return normName(x.name) === normName(m.name) && normName(x.note) === normName(m.note); });
+      if (!dup) target.meds.push(m);
+    });
+    function union(a, b) {
+      return (a || []).concat(b || []).filter(function (x, i, all) {
+        return all.findIndex(function (y) { return normName(y) === normName(x); }) === i;
+      });
+    }
+    target.tags = union(target.tags, add.tags);
+    Object.keys(LABEL_KINDS).forEach(function (kind) { var k = LABEL_KINDS[kind].logKey; target[k] = union(target[k], add[k]); });
+    if (add.note) target.note = target.note ? target.note + '\n' + add.note : add.note;
+    target.v = DATA_VERSION;
+    save();
+    clearRecordForm();
+    render();
+    toast('Added to ' + p.name + '\'s ' + (date === today() ? 'latest log today' : formatDate(date) + ' log'));
+    if (window.matchMedia('(max-width: 720px)').matches) switchTab('logs', true);
+  }
+
   function handleRecordSubmit(e) {
     e.preventDefault();
     if (!activePetId) return toast('Add a pet first');
@@ -2922,23 +3118,9 @@ body.vr-open { overflow: hidden; }
       clearRecordForm();
       return toast('This log was deleted on another device');
     }
-    var record = blankRecord(existing ? existing.petId : activePetId, $('rDate').value || today());
+    var record = readForm(existing);
+    if (!record) return;
     record.id = editingLogId || record.id;
-    record.mood = num($('rMood').value);
-    record.weight = readWeight($('rWeight'), $('rWeightOz'));
-    if (typeof record.weight === 'number' && isNaN(record.weight)) return toast('Check the weight');
-    record.activity = num($('rActivity').value);
-    record.cost = num($('rCost').value);
-    record.food = $('rFood').value.trim();
-    record.note = $('rNote').value.trim();
-    record.meds = readMedRows();
-    // Tags outside the chip set (kept from older data) survive an edit untouched.
-    record.tags = (existing ? existing.tags.filter(function (t) { return TAGS.indexOf(t) < 0; }) : []).concat(readTags());
-    // Labels and play size only count when their tag is chosen
-    record.symptoms = tagPressed('symptom') ? formLabels.symptom.slice() : [];
-    record.playKinds = tagPressed('activity') ? formLabels.play.slice() : [];
-    record.playSize = tagPressed('activity') ? formPlaySize : '';
-    if (isBlankRecord(record)) return toast('Enter something to log');
     if (existing) {
       // Keep when each medicine was given, if it's still on the log.
       record.meds.forEach(function (m) {
@@ -2975,8 +3157,11 @@ body.vr-open { overflow: hidden; }
     $('rFood').value = r.food || '';
     $('rNote').value = r.note || '';
     setTags(r.tags);
-    formLabels = { symptom: (r.symptoms || []).slice(), play: (r.playKinds || []).slice() };
+    formLabels = { symptom: (r.symptoms || []).slice(), vomit: (r.vomitKinds || []).slice(),
+      stool: (r.stoolKinds || []).slice(), play: (r.playKinds || []).slice() };
     formPlaySize = r.playSize || '';
+    formVetType = r.vetType || '';
+    renderAppendHint();
     renderLabelPanel();
     $('medRows').innerHTML = '';
     r.meds.forEach(function (m) { addMedRow(m.name, m.note); });
@@ -3007,13 +3192,15 @@ body.vr-open { overflow: hidden; }
     ['rMood', 'rWeight', 'rWeightOz', 'rActivity', 'rCost', 'rFood', 'rNote'].forEach(function (id) { $(id).value = ''; });
     $('rDate').value = today();
     setTags([]);
-    formLabels = { symptom: [], play: [] };
+    formLabels = { symptom: [], vomit: [], stool: [], play: [] };
     formPlaySize = '';
-    labelEditMode = { symptom: false, play: false };
+    formVetType = '';
+    labelEditMode = { symptom: false, vomit: false, stool: false, play: false };
+    renderAppendHint();
     renderLabelPanel();
     $('medRows').innerHTML = '';
     renderStars();
-    $('formTitle').textContent = 'Add health log';
+    $('formTitle').textContent = 'Add a log';
     $('formHint').textContent = 'All fields optional';
     $('submitBtn').textContent = 'Add log';
   }
@@ -3025,11 +3212,12 @@ body.vr-open { overflow: hidden; }
   }
 
   function exportCsv() {
-    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'medications', 'note']];
+    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'medications', 'note']];
     state.records.forEach(function (r) {
       var p = state.pets.find(function (x) { return x.id === r.petId; }) || {};
       var meds = r.meds.map(function (m) { return m.name + (m.note ? ' (' + m.note + ')' : ''); }).join('; ');
-      rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), (r.symptoms || []).join('; '), r.playSize || '', (r.playKinds || []).join('; '),
+      rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), (r.symptoms || []).join('; '),
+        (r.vomitKinds || []).join('; '), (r.stoolKinds || []).join('; '), r.vetType || '', r.playSize || '', (r.playKinds || []).join('; '),
         r.weight, r.mood, r.activity, r.cost, r.food, meds, r.note]);
     });
     var csv = rows.map(function (row) {
@@ -3066,13 +3254,14 @@ body.vr-open { overflow: hidden; }
     var p = activePet();
     var name = p ? p.name : 'Luna';
     var rows = [
-      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'play size', 'play', 'food', 'mood', 'activity', 'cost', 'note'],
-      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.'],
-      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', ''],
-      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', 'Restless all evening'],
-      ['Example', '9/22/2026', '', '', '', 'activity', '', 'big', 'Bed game; String', '', '', '', '', 'Big play at 10 pm'],
-      ['Example', '9/23/2026', '', '', '', 'vomit', '', '', '', 'New kibble', '', '', '', 'Hairball'],
-      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', '', '', '', '85', 'Annual checkup (' + name + ')']
+      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'food', 'mood', 'activity', 'cost', 'note'],
+      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.'],
+      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', ''],
+      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', '', '', '', 'Restless all evening'],
+      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', 'Big play at 10 pm'],
+      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', 'New kibble', '', '', '', ''],
+      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', ''],
+      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', 'scheduled', '', '', '', '', '', '85', 'Annual checkup (' + name + ')']
     ];
     download('pet-health-import-template.csv', rows.map(csvLine).join('\n'), 'text/csv');
     toast('Template downloaded');
@@ -3123,7 +3312,8 @@ body.vr-open { overflow: hidden; }
     function n(x) { return has(x) && isFinite(Number(x)) ? Math.round(Number(x) * 1000) / 1000 : ''; }
     return JSON.stringify([r.petId, r.date, n(r.weight), n(r.mood), n(r.activity), n(r.cost), t(r.food), t(r.note),
       (r.meds || []).map(function (m) { return t(m.name) + '|' + t(m.note); }).sort(),
-      (r.tags || []).slice().sort(), (r.symptoms || []).map(t).sort(), t(r.playSize), (r.playKinds || []).map(t).sort()]);
+      (r.tags || []).slice().sort(), (r.symptoms || []).map(t).sort(), t(r.playSize), (r.playKinds || []).map(t).sort(),
+      (r.vomitKinds || []).map(t).sort(), (r.stoolKinds || []).map(t).sort(), t(r.vetType)]);
   }
 
   // Work out what a CSV would add, without changing anything
@@ -3134,11 +3324,13 @@ body.vr-open { overflow: hidden; }
       weight: ['weight'], kg: ['kg', 'weight kg', 'weight (kg)'],
       meds: ['medications', 'medication', 'medicines', 'medicine', 'meds'],
       tags: ['tags', 'types', 'type', 'events'], symptoms: ['symptoms', 'symptom labels'],
+      vomit: ['vomit', 'vomit labels'], stool: ['stool', 'stool labels'], vetType: ['vet type', 'visit type'],
       playSize: ['play size', 'size'], play: ['play', 'play labels'],
       food: ['food', 'meal'], mood: ['mood'], activity: ['activity', 'activity minutes', 'minutes'],
       cost: ['cost', 'price'], note: ['note', 'notes', 'description', 'comment']
     };
-    var TAG_WORDS = { symptom: 'symptom', symptoms: 'symptom', vomit: 'vomit', vomiting: 'vomit', diarrhea: 'diarrhea', diarrhoea: 'diarrhea',
+    var TAG_WORDS = { symptom: 'symptom', symptoms: 'symptom', vomit: 'vomit', vomiting: 'vomit', diarrhea: 'stool', diarrhoea: 'stool',
+      stool: 'stool', poop: 'stool', 'bowel movement': 'stool',
       activity: 'activity', play: 'activity', vet: 'vet', 'vet visit': 'vet' };
     var DERIVED = ['weight', 'medication', 'medications', 'medicine', 'meal', 'food', 'note'];
     var plan = { adds: [], newPets: [], perPet: {}, duplicates: 0, examples: 0, problems: [], warnings: [], error: '' };
@@ -3204,9 +3396,14 @@ body.vr-open { overflow: hidden; }
       var size = get('playSize').toLowerCase();
       if (size && !PLAY_SIZES[size]) return problem('Play size "' + get('playSize') + '" should be tiny, short, decent or big');
 
+      var vetType = get('vetType').toLowerCase();
+      if (vetType && !VET_TYPES[vetType]) return problem('Vet type "' + get('vetType') + '" should be scheduled, unscheduled or emergency');
       var tags = [];
+      var stoolKinds = list('stool');
       list('tags').forEach(function (word) {
         var k = word.toLowerCase();
+        // "Diarrhea" is a stool log marked Diarrhea
+        if ((k === 'diarrhea' || k === 'diarrhoea') && !stoolKinds.some(function (x) { return normName(x) === 'diarrhea'; })) stoolKinds.push('Diarrhea');
         if (TAG_WORDS[k]) { if (tags.indexOf(TAG_WORDS[k]) < 0) tags.push(TAG_WORDS[k]); }
         else if (DERIVED.indexOf(k) < 0) unknownTags[word] = (unknownTags[word] || []).concat([line]);
       });
@@ -3214,9 +3411,12 @@ body.vr-open { overflow: hidden; }
         var mm = /^(.*?)\s*\((.*)\)\s*$/.exec(m);
         return mm ? { name: mm[1].trim(), note: mm[2].trim() } : { name: m, note: '' };
       }).filter(function (m) { return m.name; });
-      var symptoms = list('symptoms'), playKinds = list('play');
-      // Labels imply their tag, so they're counted as symptoms / play
+      var symptoms = list('symptoms'), playKinds = list('play'), vomitKinds = list('vomit');
+      // Labels imply their tag, so they're counted as symptoms / vomit / stool / play
       if (symptoms.length && tags.indexOf('symptom') < 0) tags.push('symptom');
+      if (vomitKinds.length && tags.indexOf('vomit') < 0) tags.push('vomit');
+      if (stoolKinds.length && tags.indexOf('stool') < 0) tags.push('stool');
+      if (vetType && tags.indexOf('vet') < 0) tags.push('vet');
       if ((size || playKinds.length) && tags.indexOf('activity') < 0) tags.push('activity');
 
       var key = normName(petName);
@@ -3234,6 +3434,9 @@ body.vr-open { overflow: hidden; }
       rec.symptoms = symptoms;
       rec.playSize = size;
       rec.playKinds = playKinds;
+      rec.vomitKinds = vomitKinds;
+      rec.stoolKinds = stoolKinds;
+      rec.vetType = vetType;
       rec.food = get('food');
       rec.mood = mood;
       rec.activity = activity;
@@ -3465,7 +3668,7 @@ body.vr-open { overflow: hidden; }
       var md = meds[k];
       var days = Object.keys(md.days).sort();
       var out = { name: md.name, dose: md.dose, changes: md.changes, daysGiven: days.length, first: days[0], last: days[days.length - 1] };
-      var daily = (pet.routine || []).some(function (it) { return it.kind !== 'weight' && normName(it.med) === k; });
+      var daily = (pet.routine || []).some(function (it) { return isMedItem(it) && normName(it.med) === k; });
       if (daily) {
         // Count from the period start if it was already being given, otherwise from its first dose
         var givenBefore = state.records.some(function (r) {
@@ -3486,18 +3689,19 @@ body.vr-open { overflow: hidden; }
     });
 
     // Vomiting and diarrhea
-    function episodes(tag) {
-      return recs.filter(function (r) { return hasTag(r, tag); }).map(function (r) { return { date: r.date, note: r.note }; });
+    function episodes(match, labelKey) {
+      return recs.filter(match).map(function (r) { return { date: r.date, note: r.note, labels: (r[labelKey] || []).slice() }; });
     }
     // Other notes: symptoms, vet visits, and any log with a note, except
     // medicine-only logs (their notes are doses) and episodes (listed above)
     var notes = recs.filter(function (r) {
-      if (hasTag(r, 'vomit') || hasTag(r, 'diarrhea')) return false;
+      if (hasTag(r, 'vomit') || hasTag(r, 'stool')) return false;
       var medicineOnly = r.meds.length && !r.tags.length && !has(r.weight) && !r.food && !has(r.activity) && !has(r.mood);
       if (medicineOnly) return false;
       return !!r.note || hasTag(r, 'symptom') || hasTag(r, 'vet');
     }).map(function (r) {
       var detail = (r.symptoms || []).slice();
+      if (hasTag(r, 'vet') && VET_TYPES[r.vetType]) detail.unshift(VET_TYPES[r.vetType] + ' visit');
       if (hasTag(r, 'activity')) {
         if (PLAY_SIZES[r.playSize]) detail.push(PLAY_SIZES[r.playSize] + ' play');
         detail = detail.concat(r.playKinds || []);
@@ -3527,7 +3731,10 @@ body.vr-open { overflow: hidden; }
       },
       pet: pet, from: from, to: to, days: dayCount(from, to), logs: recs,
       weight: weight, medicines: medicines,
-      vomit: episodes('vomit'), diarrhea: episodes('diarrhea'), notes: notes
+      vomit: episodes(function (r) { return hasTag(r, 'vomit'); }, 'vomitKinds'),
+      diarrhea: episodes(isDiarrhea, 'stoolKinds'),
+      stool: episodes(function (r) { return hasTag(r, 'stool'); }, 'stoolKinds'),
+      notes: notes
     };
   }
 
@@ -3583,14 +3790,18 @@ body.vr-open { overflow: hidden; }
     h += '</section>';
 
     // Vomiting and diarrhea
-    h += '<section><h2>Vomiting and diarrhea</h2>';
-    if (sum.vomit.length || sum.diarrhea.length) {
-      h += '<p>Vomiting: <b>' + sum.vomit.length + '</b> · Diarrhea: <b>' + sum.diarrhea.length + '</b></p>' +
+    h += '<section><h2>Vomiting and stool</h2>';
+    if (sum.vomit.length || sum.stool.length) {
+      h += '<p>Vomiting: <b>' + sum.vomit.length + '</b> · Diarrhea: <b>' + sum.diarrhea.length + '</b> · Stool logs: <b>' + sum.stool.length + '</b></p>' +
         '<div class="vr-scroll"><table><tr><th>Date</th><th>Episode</th><th>Note</th></tr>' +
-        sum.vomit.map(function (e) { return { date: e.date, what: 'Vomiting', note: e.note }; })
-          .concat(sum.diarrhea.map(function (e) { return { date: e.date, what: 'Diarrhea', note: e.note }; }))
+        sum.vomit.map(function (e) { return { date: e.date, what: 'Vomiting', labels: e.labels, note: e.note }; })
+          .concat(sum.stool.map(function (e) { return { date: e.date, what: 'Stool', labels: e.labels, note: e.note }; }))
           .sort(function (a, b) { return a.date.localeCompare(b.date); })
-          .map(function (e) { return '<tr><td>' + esc(formatDate(e.date)) + '</td><td>' + e.what + '</td><td>' + esc(e.note || '') + '</td></tr>'; }).join('') +
+          .map(function (e) {
+            return '<tr><td>' + esc(formatDate(e.date)) + '</td><td>' + e.what +
+              (e.labels.length ? '<div class="vr-muted">' + esc(e.labels.join(', ')) + '</div>' : '') +
+              '</td><td>' + esc(e.note || '') + '</td></tr>';
+          }).join('') +
         '</table></div>';
     } else {
       h += '<p class="vr-muted">None logged in this period.</p>';
@@ -3636,7 +3847,8 @@ body.vr-open { overflow: hidden; }
           r.meds.forEach(function (m) { bits.push(esc(m.name) + (m.note ? ' (' + esc(m.note) + ')' : '')); });
           r.tags.forEach(function (tg) { bits.push(esc(label(tg))); });
           if (PLAY_SIZES[r.playSize]) bits.push(esc(PLAY_SIZES[r.playSize]) + ' play');
-          (r.playKinds || []).concat(r.symptoms || []).forEach(function (l) { bits.push(esc(l)); });
+          (r.playKinds || []).concat(r.symptoms || [], r.vomitKinds || [], r.stoolKinds || []).forEach(function (l) { bits.push(esc(l)); });
+          if (VET_TYPES[r.vetType]) bits.push(esc(VET_TYPES[r.vetType]) + ' visit');
           if (r.food) bits.push('Food: ' + esc(r.food));
           if (has(r.activity)) bits.push('Activity ' + esc(r.activity) + ' min');
           if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
@@ -3828,7 +4040,11 @@ body.vr-open { overflow: hidden; }
   // on every read, so data written by an older copy of the app still loads.
   function blankRecord(petId, date) {
     return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', meds: [], tags: [], note: '',
-      symptoms: [], playSize: '', playKinds: [] };
+      symptoms: [], playSize: '', playKinds: [], vomitKinds: [], stoolKinds: [], vetType: '' };
+  }
+  // A stool log marked as diarrhea (what used to be a Diarrhea log)
+  function isDiarrhea(r) {
+    return hasTag(r, 'stool') && (r.stoolKinds || []).some(function (k) { return normName(k) === 'diarrhea'; });
   }
   function normalizeRecord(raw) {
     if (Number(raw && raw.v) > DATA_VERSION) newerDataSeen = true;
@@ -3844,10 +4060,19 @@ body.vr-open { overflow: hidden; }
     if (r.med && !r.meds.length) r.meds.push({ name: String(r.med).trim(), note: '' });
     var legacy = !Array.isArray(r.tags);
     r.tags = legacy ? [] : r.tags.filter(function (t, i, a) { return typeof t === 'string' && a.indexOf(t) === i; });
+    // Version 4: Diarrhea became Stool, with "Diarrhea" as the stool's label
+    var wasDiarrhea = (legacy && r.type === 'diarrhea') || r.tags.indexOf('diarrhea') >= 0;
+    if (legacy && r.type === 'diarrhea') r.type = 'stool';
+    r.tags = r.tags.filter(function (t) { return t !== 'diarrhea'; });
     if (legacy && r.type) {
       // Event types become tags. A data type with no data behind it (e.g. an
       // "activity" log that's only a note) is kept as a tag so it stays visible.
       if (TAGS.indexOf(r.type) >= 0 || !kindsOf(r).length) r.tags.push(r.type);
+    }
+    if (wasDiarrhea) {
+      if (r.tags.indexOf('stool') < 0) r.tags.push('stool');
+      r.stoolKinds = Array.isArray(r.stoolKinds) ? r.stoolKinds.slice() : [];
+      if (!r.stoolKinds.some(function (k) { return normName(k) === 'diarrhea'; })) r.stoolKinds.push('Diarrhea');
     }
     delete r.type;
     delete r.med;
@@ -3863,7 +4088,7 @@ body.vr-open { overflow: hidden; }
     st.pets.forEach(function (p) {
       if (!Array.isArray(p.routine)) return;
       p.routine.forEach(function (it) {
-        if (it && it.kind !== 'weight' && typeof it.note !== 'string') it.note = lastMedNote(st.records, p.id, it.med);
+        if (it && isMedItem(it) && typeof it.note !== 'string') it.note = lastMedNote(st.records, p.id, it.med);
       });
     });
     return st;
@@ -4031,7 +4256,10 @@ body.vr-open { overflow: hidden; }
     }
     out.symptoms = union(remote.symptoms, local.symptoms);
     out.playKinds = union(remote.playKinds, local.playKinds);
+    out.vomitKinds = union(remote.vomitKinds, local.vomitKinds);
+    out.stoolKinds = union(remote.stoolKinds, local.stoolKinds);
     if (!local.playSize && remote.playSize) out.playSize = remote.playSize;
+    if (!local.vetType && remote.vetType) out.vetType = remote.vetType;
     return out;
   }
   // True if this device holds anything besides the untouched demo data.
@@ -4071,7 +4299,7 @@ body.vr-open { overflow: hidden; }
       pets: [p],
       records: [
         r('2026-04-12', { tags: ['vomit'], mood: 2, note: 'Once in the morning, hairball.' }),
-        r('2026-04-19', { tags: ['diarrhea'], mood: 2, food: 'New kibble', note: 'Started after switching brands.' }),
+        r('2026-04-19', { tags: ['stool'], stoolKinds: ['Diarrhea'], mood: 2, food: 'New kibble', note: 'Started after switching brands.' }),
         r('2026-04-21', { tags: ['vomit'], mood: 3, note: 'Ate too fast at dinner.' }),
         r('2026-04-26', { weight: 12.0, mood: 4, activity: 12, note: 'Normal appetite, playful.' }),
         r('2026-04-28', { mood: 3, activity: 5, meds: [{ name: 'Antibiotic', note: '1 tablet with food' }], note: 'No side effects observed.' }),
@@ -4225,7 +4453,7 @@ body.vr-open { overflow: hidden; }
     return ({
       weight: 'Weight', meal: 'Meal', medication: 'Medication',
       activity: 'Activity', symptom: 'Symptom', vet: 'Vet visit',
-      vomit: 'Vomit', diarrhea: 'Diarrhea',
+      vomit: 'Vomit', diarrhea: 'Diarrhea', stool: 'Stool',
       mood: 'Mood', cost: 'Cost', types: 'Types'
     })[t] || t;
   }

@@ -352,7 +352,10 @@ async function conversion() {
     if ((n.meds || []).length) kinds.push('medication');
     if (n.food) kinds.push('meal');
     if (n.activity !== '' && n.activity != null) kinds.push('activity');
-    if (o.type && !kinds.includes(o.type)) lost.push([o.id, 'type', o.type, kinds]);
+    // Version 4: Diarrhea became a Stool log labelled Diarrhea
+    const expectType = o.type === 'diarrhea' ? 'stool' : o.type;
+    if (expectType && !kinds.includes(expectType)) lost.push([o.id, 'type', o.type, kinds]);
+    if (o.type === 'diarrhea' && !(n.stoolKinds || []).includes('Diarrhea')) lost.push([o.id, 'diarrhea label missing']);
   }
   check('every log kept', after.records.length === original.records.length + 1, [original.records.length, after.records.length]);
   check('no field, medicine or log type lost', lost.length === 0, lost.slice(0, 5));
@@ -1206,10 +1209,10 @@ async function bulkImport() {
   check('Import offers spreadsheet, template and backup restore', !!A.$('imCsv') && !!A.$('imTemplate') && !!A.$('imJson'));
   A.click('imTemplate'); await wait();
   const template = await readBlob(A, A.downloads[0]);
-  check('template has the columns', /^"pet","date","lb","oz","medications","tags","symptoms","play size","play"/.test(template), template.slice(0, 80));
+  check('template has the columns', /^"pet","date","lb","oz","medications","tags","symptoms","vomit","stool","vet type","play size","play"/.test(template), template.slice(0, 80));
   A.click('modalClose');
   await importCsv(A, template);
-  check('importing the untouched template adds nothing', /Nothing new to add/.test(preview(A)) && /6 example rows/.test(preview(A)) && !A.$('impAdd'), preview(A));
+  check('importing the untouched template adds nothing', /Nothing new to add/.test(preview(A)) && /7 example rows/.test(preview(A)) && !A.$('impAdd'), preview(A));
   A.click('impCancel');
 
   // The main import
