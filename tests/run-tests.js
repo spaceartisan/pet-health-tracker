@@ -219,6 +219,16 @@ function openApp(client, storage, opts = {}) {
     click(id) { d.getElementById(id).click(); },
     type(el, text) { el.focus(); el.value = text; el.dispatchEvent(new w.Event('input', { bubbles: true })); el.dispatchEvent(new w.Event('change', { bubbles: true })); },
     submit() { d.getElementById('recordForm').dispatchEvent(new w.Event('submit', { cancelable: true })); },
+    // Enter in a text field. Like a real browser, it submits the surrounding
+    // form unless the app prevents it (jsdom doesn't do this by itself).
+    pressEnter(el) {
+      const ev = new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      el.dispatchEvent(ev);
+      // The rest of the keypress goes to whichever field has the cursor now
+      // (the app may have redrawn the field while handling the key).
+      const target = d.activeElement && d.activeElement.form ? d.activeElement : el;
+      if (!ev.defaultPrevented && target.form) target.form.dispatchEvent(new w.Event('submit', { cancelable: true }));
+    },
     addLog(note) { app.$('rNote').value = note; app.submit(); },
     selectPet(name) { [...d.querySelectorAll('.pet-row')].find((b) => b.textContent.includes(name)).click(); },
     openSync() { app.click('authBtn'); },
@@ -948,6 +958,118 @@ async function vetSummary() {
 }
 
 // =====================================================================
+// LABELS & PLAY: quick symptom/play labels and play size
+// =====================================================================
+async function labelsAndPlay() {
+  resetServer({ [CODE]: vault(CODE) });
+  let A = openApp(makeClient('phone'), linked(CODE, vault(CODE)));
+  const B = openApp(makeClient('laptop'), linked(CODE, vault(CODE)));
+  await settle();
+  const d = A.d;
+  const tag = (t) => d.querySelector('#rTags [data-tag="' + t + '"]');
+  const chip = (kind, name) => d.querySelector('#labelPanel [data-label-kind="' + kind + '"][data-label="' + name + '"]');
+  const starter = (kind, name) => d.querySelector('#labelPanel [data-starter-kind="' + kind + '"][data-label="' + name + '"]');
+  const newLabel = (kind) => d.querySelector('#labelPanel [data-new-label="' + kind + '"]');
+  const pepper = () => A.state().pets.find((p) => p.id === 'p-pepper');
+  const latest = () => A.state().records.filter((r) => r.date === TODAY).pop();
+
+  check('no label panel until Symptom or Activity is chosen', A.$('labelPanel').innerHTML === '');
+  tag('symptom').click();
+  check('choosing Symptom shows starter labels', !!starter('symptom', 'Restless'));
+  starter('symptom', 'Restless').click(); await settle();
+  check('tapping a starter adds it to the pet and selects it', (pepper().symptomLabels || []).includes('Restless') && chip('symptom', 'Restless').getAttribute('aria-pressed') === 'true');
+  const recordsBefore = A.state().records.length;
+  A.type(newLabel('symptom'), 'Climbing on counters');
+  A.pressEnter(newLabel('symptom')); await settle();
+  check('Enter adds a new label without saving the log', chip('symptom', 'Climbing on counters') && chip('symptom', 'Climbing on counters').getAttribute('aria-pressed') === 'true' && A.state().records.length === recordsBefore);
+  check('labels sync to the other device', (B.state().pets.find((p) => p.id === 'p-pepper').symptomLabels || []).length === 2);
+
+  tag('activity').click();
+  check('choosing Activity shows play sizes', d.querySelectorAll('#labelPanel [data-size]').length === 4);
+  d.querySelector('#labelPanel [data-size="big"]').click();
+  A.type(newLabel('play'), 'Bed game');
+  d.querySelector('#labelPanel [data-add-label="play"]').click(); await settle();
+  A.addLog('Restless, then a big bed game'); await settle();
+  let r = latest();
+  check('the log saves its symptom labels', r && JSON.stringify(r.symptoms) === JSON.stringify(['Restless', 'Climbing on counters']), r && r.symptoms);
+  check('the log saves play size and play labels', r && r.playSize === 'big' && JSON.stringify(r.playKinds) === JSON.stringify(['Bed game']), r && [r.playSize, r.playKinds]);
+  check('the form clears afterwards', A.$('labelPanel').innerHTML === '' && !tag('symptom').getAttribute('aria-pressed').includes('true'));
+  const card = d.querySelector('.record[data-id="' + r.id + '"]').textContent;
+  check('the log card shows them', card.includes('Big play') && card.includes('Bed game') && card.includes('Restless'));
+
+  // Labels only count when their tag is chosen
+  tag('symptom').click(); chip('symptom', 'Restless').click(); tag('symptom').click();
+  A.addLog('untagged'); await settle();
+  r = latest();
+  check('labels aren\'t saved when their tag is unticked', r.note === 'untagged' && r.symptoms.length === 0);
+
+  // Editing restores and updates them
+  const logged = A.state().records.find((x) => x.note === 'Restless, then a big bed game');
+  A.editLog(logged.id);
+  check('editing shows the log\'s labels and size', chip('symptom', 'Restless').getAttribute('aria-pressed') === 'true' && d.querySelector('#labelPanel [data-size="big"]').getAttribute('aria-pressed') === 'true');
+  d.querySelector('#labelPanel [data-size="short"]').click();
+  A.submit(); await settle();
+  check('an edit updates the play size', A.state().records.find((x) => x.id === logged.id).playSize === 'short');
+
+  // Removing a label from the pet's list keeps it on old logs
+  tag('symptom').click();
+  d.querySelector('#labelPanel [data-edit-labels="symptom"]').click();
+  chip('symptom', 'Restless').click(); await settle();
+  check('a label can be removed from the pet\'s list', !(pepper().symptomLabels || []).includes('Restless'));
+  check('...logs that used it keep it', A.state().records.find((x) => x.id === logged.id).symptoms.includes('Restless'));
+  A.click('clearForm');
+  A.editLog(logged.id);
+  check('...and it still shows when editing that log', chip('symptom', 'Restless') && chip('symptom', 'Restless').getAttribute('aria-pressed') === 'true');
+  A.click('clearForm');
+
+  // Typing a new label while another device's update redraws the form
+  tag('activity').click();
+  A.type(newLabel('play'), 'Str');
+  newLabel('play').setSelectionRange(3, 3);
+  B.addLog('laptop update'); await settle();
+  check('a half-typed label survives an update from another device', newLabel('play').value === 'Str' && d.activeElement === newLabel('play'));
+  A.click('clearForm');
+  check('no script errors', A.log.errors.length === 0 && B.log.errors.length === 0, A.log.errors.concat(B.log.errors));
+  A.close(); B.close();
+
+  // Charts and vet summary, from logs with labels
+  const data = vault(CODE);
+  const add = (date, tags, extra) => data.records.push(Object.assign({ id: 'L' + data.records.length, v: DATA_VERSION, petId: 'p-pepper', date, weight: '', mood: '', activity: '', cost: '', food: '', meds: [], tags, note: 'x', symptoms: [], playSize: '', playKinds: [] }, extra));
+  add('2026-09-01', ['activity'], { playSize: 'big', playKinds: ['Bed game', 'Sprints'] });
+  add('2026-09-08', ['activity'], { playSize: 'big', playKinds: ['Bed game'] });
+  add('2026-09-15', ['activity'], { playSize: 'decent', playKinds: ['String'] });
+  add('2026-09-22', ['activity'], { playSize: 'tiny' });
+  add('2026-09-02', ['symptom'], { symptoms: ['Restless', 'Begging'] });
+  add('2026-09-09', ['symptom'], { symptoms: ['Restless'] });
+  add('2026-09-16', ['symptom'], { symptoms: ['Restless', 'Hiding'] });
+  add('2026-09-17', ['symptom'], { symptoms: ['Begging'] });
+  add('2026-09-18', ['symptom'], { symptoms: ['Sneezing'] });
+  add('2026-09-19', ['symptom'], { symptoms: ['Scratching'] });
+  resetServer({ [CODE]: data });
+  A = openApp(makeClient('c'), linked(CODE, data));
+  await settle();
+  A.$('chartRange').value = '30';
+  const series = (cfg) => Object.fromEntries(cfg.data.datasets.map((ds) => [ds.label, ds.data.reduce((a, b) => a + b, 0)]));
+  const inRange = (r) => r.date >= '2026-08-26';
+  const sampleActivity = SAMPLE[CODE].records.filter((r) => r.petId === 'p-pepper' && r.type === 'activity' && r.date >= '2026-08-24').length;
+  let got = series(A.chart('play-weekly'));
+  check('play chart: sessions per week stacked by size', got.Big === 2 && got.Decent === 1 && got.Tiny === 1 && (got['Size not set'] || 0) === sampleActivity, got);
+  got = series(A.chart('symptom-weekly'));
+  const sampleSymptoms = SAMPLE[CODE].records.filter((r) => r.petId === 'p-pepper' && r.type === 'symptom' && r.date >= '2026-08-24').length;
+  check('symptom chart: the four most common labels, then the rest', got.Restless === 3 && got.Begging === 2 && Object.keys(got).length === 6 && got['Other labels'] === 1 && got['No label'] === sampleSymptoms, got);
+  check('both have a legend', A.w.__chart.options.plugins.legend.display === true);
+  A.click('vetSummaryBtn'); A.$('vsPeriod').value = '30'; A.click('vsCreate');
+  const rep = A.$('vetReport').textContent;
+  const expectedSessions = 4 + sampleActivity;
+  check('vet summary: play sessions by size and kind', rep.includes(expectedSessions + ' play sessions') && rep.includes('Big 2') && rep.includes('Bed game 2'), rep.slice(rep.indexOf('Play'), rep.indexOf('Play') + 120));
+  check('vet summary: symptom label counts', /Restless 3 · Begging 2/.test(rep));
+  check('vet summary: labels next to each note', [...A.$('vetReport').querySelectorAll('td .vr-muted')].some((e) => e.textContent === 'Restless, Hiding'));
+  A.click('vrClose');
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+}
+
+// =====================================================================
 // PREVIOUS VERSION (optional): old and new copies of the app together
 // =====================================================================
 async function previousVersion() {
@@ -961,9 +1083,28 @@ async function previousVersion() {
   const log = todays(server.docs[CODE].records, 'p-pepper').find((r) => (r.meds || []).length === 2);
   check('new copy saves normally', !!log);
   if (prevV < DATA_VERSION) {
-    const refusedBefore = server.rejected;
-    O.addLog('from the old copy'); await settle();
-    check('old copy (version ' + prevV + ') is refused', server.rejected > refusedBefore && !cloudNotes().includes('from the old copy'));
+    // The old copy must never damage newer data: before the rules are raised
+    // it has to stop itself (it sees logs from a newer version); after, the
+    // rules refuse it too.
+    O.close(); N.close();
+    for (const [when, min] of [['before the rules are raised', RULES ? RULES.minVersion : 0], ['after the rules are raised', DATA_VERSION]]) {
+      resetServer({ [CODE]: data });
+      server.rules = RULES ? makeRules(min) : null;
+      const n2 = openApp(makeClient('new'), linked(CODE, data));
+      const o2 = openApp(makeClient('old'), linked(CODE, data), { html: PREVIOUS_HTML, liveVersion: DATA_VERSION });
+      await settle();
+      n2.addLog('written by the new version'); await settle();
+      const newLog = server.docs[CODE].records.find((r) => r.note === 'written by the new version');
+      const snapshot = JSON.stringify(newLog);
+      const card = o2.d.querySelector('.record[data-id="' + (newLog && newLog.id) + '"] [data-action="edit"]');
+      if (card) { card.click(); o2.$('rNote').value = 'edited on the old copy'; o2.submit(); await settle(); }
+      o2.addLog('from the old copy'); await settle();
+      check(when + ': old copy (version ' + prevV + ') shows the reload banner', !o2.$('updateBanner').hidden);
+      check(when + ': old copy can\'t change the new version\'s logs', JSON.stringify(server.docs[CODE].records.find((r) => r.id === newLog.id)) === snapshot);
+      check(when + ': old copy\'s own changes don\'t reach the cloud', !cloudNotes().includes('from the old copy'));
+      n2.close(); o2.close();
+    }
+    return;
   } else {
     O.addLog('from the old copy'); await settle();
     check('same version: both copies save', cloudNotes().includes('from the old copy'));
@@ -998,6 +1139,7 @@ async function previousVersion() {
     await runGroup('Update protection' + tag, updates);
     await runGroup('Themes' + tag, themes);
     await runGroup('Vet summary' + tag, vetSummary);
+    await runGroup('Labels & play' + tag, labelsAndPlay);
     if (PREVIOUS_HTML) await runGroup('Previous version' + tag, previousVersion);
   }
   let pass = 0, total = 0;

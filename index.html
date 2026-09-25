@@ -953,6 +953,23 @@ h1 {
 }
 .small-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 14px 0 6px; }
 
+/* ============ QUICK LABELS & PLAY SIZE ============ */
+.label-panel { display: grid; gap: 12px; }
+.label-panel:empty { display: none; }
+.label-group { display: grid; gap: 6px; padding: 12px; border-radius: var(--radius); background: var(--bg); }
+.label-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.label-group-head button { min-height: 28px; padding: 2px 8px; }
+.label-chip.suggested { border-style: dashed; color: var(--muted); }
+.label-chip.symptom-label[aria-pressed="true"] { background: var(--pill-symptom-bg); color: var(--pill-symptom-fg); }
+.label-chip.play-label[aria-pressed="true"], .size-btn[aria-pressed="true"] { background: var(--pill-activity-bg); color: var(--pill-activity-fg); }
+.label-chip .remove { margin-left: 4px; font-weight: 700; }
+.size-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.size-btn { justify-content: center; }
+.new-label { display: flex; gap: 6px; }
+.new-label input { min-height: 36px; padding: 6px 10px; }
+.new-label button { min-height: 36px; padding: 6px 12px; }
+
 /* ============ CHART CONTROLS ============ */
 .chart-card .section-h { flex-wrap: wrap; }
 .chart-controls { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -1257,6 +1274,8 @@ body.vr-open { overflow: hidden; }
                 <button type="button" class="tag-chip activity" data-tag="activity" aria-pressed="false">Activity</button>
                 <button type="button" class="tag-chip vet" data-tag="vet" aria-pressed="false">Vet visit</button>
               </div>
+              <!-- Quick labels and play size, shown when Symptom or Activity is chosen -->
+              <div class="label-panel" id="labelPanel"></div>
               <div class="form-grid type-fields">
                 <label class="field"><span class="field-head">Weight <button type="button" class="star" id="starWeight" title="Weigh in every day" aria-label="Weigh in every day" aria-pressed="false">☆</button></span><input type="number" step="0.01" id="rWeight" inputmode="decimal" placeholder="lb / kg"></label>
                 <label class="field">Mood<input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
@@ -1292,7 +1311,9 @@ body.vr-open { overflow: hidden; }
                 <select id="chartMode" aria-label="Chart" style="width: auto; min-height: 36px; padding: 6px 12px;">
                   <option value="weight">Weight</option>
                   <option value="mood">Mood</option>
-                  <option value="activity">Activity</option>
+                  <option value="activity">Activity minutes</option>
+                  <option value="play-weekly">Play (weekly)</option>
+                  <option value="symptom-weekly">Symptoms (weekly)</option>
                   <option value="cost">Cost</option>
                   <option value="vomit-weekly">Vomit (weekly)</option>
                   <option value="diarrhea-weekly">Diarrhea (weekly)</option>
@@ -1372,11 +1393,20 @@ body.vr-open { overflow: hidden; }
   //   2. Push, and wait until the new version is live on GitHub Pages.
   //   3. Bump minVersion() in the Firestore rules to match, then Publish.
   // Updates that don't need this can be pushed without changing any of them.
-  var DATA_VERSION = 2;
+  var DATA_VERSION = 3; // 3: logs can carry symptom labels, play size and play labels
   var newerDataSeen = false;
   var updateNotice = '';   // message for the reload banner, if any
   var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
   var lastUpdateCheck = 0; // when version.json was last checked
+  // Quick labels and play size (used further down; defined here because startup reads them)
+  var PLAY_SIZES = { tiny: 'Tiny', short: 'Short', decent: 'Decent', big: 'Big' };
+  var LABEL_STARTERS = {
+    symptom: ['Restless', 'Begging for food', 'Hiding', 'Scratching', 'Sneezing'],
+    play: ['Chasing a toy', 'Zoomies', 'Climbing', 'Wand toy']
+  };
+  var formLabels = { symptom: [], play: [] };
+  var formPlaySize = '';
+  var labelEditMode = { symptom: false, play: false };
   // Color themes (used by the picker further down; defined here because startup reads it)
   var THEMES = [
     { id: 'garden', name: 'Garden', about: 'Warm cream and sage (default)', page: '#f7f3ec', swatch: ['#f7f3ec', '#6b8e5a', '#c2613f'] },
@@ -1422,7 +1452,10 @@ body.vr-open { overflow: hidden; }
   $('addMedRow').addEventListener('click', function () { addMedRow('', '').querySelector('.med-name').focus(); });
   $('starWeight').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'weight' }); });
   $('rTags').querySelectorAll('.tag-chip').forEach(function (b) {
-    b.addEventListener('click', function () { b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true'); });
+    b.addEventListener('click', function () {
+      b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true');
+      renderLabelPanel();
+    });
   });
   $('chartMode').addEventListener('change', renderChart);
   try { var savedRange = localStorage.getItem('petHealth.chartRange'); if (savedRange) $('chartRange').value = savedRange; } catch (e) {}
@@ -1503,6 +1536,7 @@ body.vr-open { overflow: hidden; }
 
   function render() {
     renderUpdateBanner();
+    renderLabelPanel();
     renderPets();
     renderSummary();
     renderToday();
@@ -1615,6 +1649,9 @@ body.vr-open { overflow: hidden; }
       if (has(r.activity)) bits.push(esc(r.activity) + ' min');
       if (has(r.cost) && Number(r.cost) > 0) bits.push('$' + Number(r.cost).toFixed(2));
       if (r.food) bits.push(esc(r.food));
+      if (r.playSize) bits.push(esc(PLAY_SIZES[r.playSize] || r.playSize) + ' play');
+      (r.playKinds || []).forEach(function (k) { bits.push(esc(k)); });
+      (r.symptoms || []).forEach(function (k) { bits.push(esc(k)); });
       var kinds = kindsOf(r);
       var pills = kinds.length
         ? kinds.map(function (k) { return '<span class="type-pill ' + esc(k) + '">' + esc(label(k)) + '</span>'; }).join('')
@@ -2045,6 +2082,120 @@ body.vr-open { overflow: hidden; }
       set(row.querySelector('.star'), !!(p && routineItemFor(p, 'medication', row.querySelector('.med-name').value)));
     });
   }
+  // ===== QUICK LABELS & PLAY SIZE =====
+  // Each pet has its own symptom labels and play labels (pet.symptomLabels,
+  // pet.playLabels), so they sync like other pet details. A log stores the
+  // ones picked (symptoms, playKinds) and a play size.
+  function petLabelList(p, kind) {
+    return (p && (kind === 'symptom' ? p.symptomLabels : p.playLabels)) || [];
+  }
+  function tagPressed(tag) {
+    var b = $('rTags').querySelector('[data-tag="' + tag + '"]');
+    return !!b && b.getAttribute('aria-pressed') === 'true';
+  }
+  function toggleIn(list, name) {
+    var i = list.findIndex(function (x) { return normName(x) === normName(name); });
+    if (i >= 0) list.splice(i, 1); else list.push(name);
+  }
+  function addPetLabel(kind, name) {
+    name = String(name || '').trim().replace(/\s+/g, ' ');
+    if (!name) return;
+    var p = formPet();
+    if (!p) return;
+    var key = kind === 'symptom' ? 'symptomLabels' : 'playLabels';
+    var list = (p[key] || []).slice();
+    var existingName = list.find(function (x) { return normName(x) === normName(name); });
+    if (!existingName) { list.push(name); p[key] = list; save(); }
+    if (!formLabels[kind].some(function (x) { return normName(x) === normName(name); })) formLabels[kind].push(existingName || name);
+    renderLabelPanel();
+  }
+  function renderLabelPanel() {
+    var panel = $('labelPanel');
+    var p = formPet();
+    // Keep an in-progress new label (and the cursor) through redraws
+    var active = document.activeElement;
+    var keep = active && panel.contains(active) && active.getAttribute('data-new-label')
+      ? { kind: active.getAttribute('data-new-label'), value: active.value, start: active.selectionStart } : null;
+    function group(kind, title) {
+      var chosen = formLabels[kind];
+      var list = petLabelList(p, kind);
+      // Labels on this log that are no longer in the pet's list still show
+      chosen.forEach(function (c) { if (!list.some(function (x) { return normName(x) === normName(c); })) list = list.concat([c]); });
+      var chipClass = kind === 'symptom' ? 'symptom-label' : 'play-label';
+      var editing = labelEditMode[kind];
+      var chips = list.map(function (name) {
+        var on = chosen.some(function (x) { return normName(x) === normName(name); });
+        return '<button type="button" class="tag-chip label-chip ' + chipClass + '" data-label-kind="' + kind + '" data-label="' + esc(name) + '" aria-pressed="' + on + '">' +
+          esc(name) + (editing ? '<span class="remove" aria-hidden="true">×</span>' : '') + '</button>';
+      }).join('');
+      var starters = list.length ? '' : LABEL_STARTERS[kind].map(function (name) {
+        return '<button type="button" class="tag-chip label-chip suggested" data-starter-kind="' + kind + '" data-label="' + esc(name) + '">+ ' + esc(name) + '</button>';
+      }).join('');
+      return '<div class="label-group">' +
+        '<div class="label-group-head"><span>' + title + '</span>' +
+          (petLabelList(p, kind).length ? '<button type="button" class="ghost tiny" data-edit-labels="' + kind + '">' + (editing ? 'Done' : 'Edit labels') + '</button>' : '') +
+        '</div>' +
+        '<div class="tag-chips">' + chips + starters + '</div>' +
+        '<div class="new-label"><input data-new-label="' + kind + '" placeholder="New label" aria-label="New ' + (kind === 'symptom' ? 'symptom' : 'play') + ' label">' +
+          '<button type="button" class="secondary" data-add-label="' + kind + '">Add</button></div>' +
+      '</div>';
+    }
+    var html = '';
+    if (tagPressed('symptom')) html += group('symptom', 'What kind of symptom?');
+    if (tagPressed('activity')) {
+      html += '<div class="label-group"><div class="label-group-head"><span>How big was the play?</span></div>' +
+        '<div class="size-row">' + Object.keys(PLAY_SIZES).map(function (k) {
+          return '<button type="button" class="tag-chip size-btn" data-size="' + k + '" aria-pressed="' + (formPlaySize === k) + '">' + PLAY_SIZES[k] + '</button>';
+        }).join('') + '</div></div>';
+      html += group('play', 'What kind of play?');
+    }
+    panel.innerHTML = html;
+    panel.querySelectorAll('[data-label-kind]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var kind = b.getAttribute('data-label-kind'), name = b.getAttribute('data-label');
+        if (labelEditMode[kind]) {
+          // Remove from this pet's list; logs that already use it keep it
+          var cur = formPet(), key = kind === 'symptom' ? 'symptomLabels' : 'playLabels';
+          if (cur) { cur[key] = (cur[key] || []).filter(function (x) { return normName(x) !== normName(name); }); save(); }
+          formLabels[kind] = formLabels[kind].filter(function (x) { return normName(x) !== normName(name); });
+        } else {
+          toggleIn(formLabels[kind], name);
+        }
+        renderLabelPanel();
+      });
+    });
+    panel.querySelectorAll('[data-starter-kind]').forEach(function (b) {
+      b.addEventListener('click', function () { addPetLabel(b.getAttribute('data-starter-kind'), b.getAttribute('data-label')); });
+    });
+    panel.querySelectorAll('[data-edit-labels]').forEach(function (b) {
+      b.addEventListener('click', function () { var k = b.getAttribute('data-edit-labels'); labelEditMode[k] = !labelEditMode[k]; renderLabelPanel(); });
+    });
+    panel.querySelectorAll('[data-size]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = b.getAttribute('data-size');
+        formPlaySize = formPlaySize === k ? '' : k;
+        renderLabelPanel();
+      });
+    });
+    panel.querySelectorAll('[data-add-label]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var kind = b.getAttribute('data-add-label');
+        addPetLabel(kind, panel.querySelector('[data-new-label="' + kind + '"]').value);
+      });
+    });
+    panel.querySelectorAll('[data-new-label]').forEach(function (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault(); // don't submit the whole log
+        addPetLabel(input.getAttribute('data-new-label'), input.value);
+      });
+    });
+    if (keep) {
+      var again = panel.querySelector('[data-new-label="' + keep.kind + '"]');
+      if (again) { again.value = keep.value; again.focus(); try { again.setSelectionRange(keep.start, keep.start); } catch (e) {} }
+    }
+  }
+
   function readTags() {
     var tags = [];
     $('rTags').querySelectorAll('.tag-chip').forEach(function (b) {
@@ -2223,6 +2374,69 @@ body.vr-open { overflow: hidden; }
           }]
         }
       };
+    } else if (mode === 'play-weekly' || mode === 'symptom-weekly') {
+      // Play sessions per week stacked by size, or symptom logs per week
+      // stacked by label (the four most common get their own color).
+      var isPlay = mode === 'play-weekly';
+      var events = rs.filter(function (r) { return hasTag(r, isPlay ? 'activity' : 'symptom'); });
+      var alpha = function (hex, a) {
+        var m = /^#([0-9a-f]{6})$/i.exec(String(hex).trim());
+        if (!m) return hex;
+        var n = parseInt(m[1], 16);
+        return 'rgba(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + a + ')';
+      };
+      var keys, names = {}, colors = {}, keyOf;
+      if (isPlay) {
+        keys = ['big', 'decent', 'short', 'tiny', 'unsized'];
+        names = { big: 'Big', decent: 'Decent', short: 'Short', tiny: 'Tiny', unsized: 'Size not set' };
+        colors = { big: alpha(C.accent, 1), decent: alpha(C.accent, .72), short: alpha(C.accent, .48), tiny: alpha(C.accent, .28), unsized: alpha(C.text, .3) };
+        keyOf = function (r) { return [PLAY_SIZES[r.playSize] ? r.playSize : 'unsized']; };
+      } else {
+        var tally = {}, spelled = {};
+        events.forEach(function (r) {
+          (r.symptoms || []).forEach(function (l) { var k = normName(l); tally[k] = (tally[k] || 0) + 1; spelled[k] = l; });
+        });
+        var top = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; }).slice(0, 4);
+        var palette = [C.avg, C.accent, C.diarrheaLine, C.legend];
+        keys = top.concat(['other', 'none']);
+        top.forEach(function (k, i) { names[k] = spelled[k]; colors[k] = palette[i]; });
+        names.other = 'Other labels'; colors.other = alpha(C.text, .5);
+        names.none = 'No label'; colors.none = alpha(C.text, .25);
+        keyOf = function (r) {
+          var ks = (r.symptoms || []).map(function (l) { var k = normName(l); return top.indexOf(k) >= 0 ? k : 'other'; });
+          ks = ks.filter(function (k, i) { return ks.indexOf(k) === i; });
+          return ks.length ? ks : ['none'];
+        };
+      }
+      // Weeks: the whole range, or from the first event (at least 12 weeks) for All time
+      var nowWk = weekStartOf(today());
+      var firstWk = nowWk;
+      events.forEach(function (r) { var w = weekStartOf(r.date); if (w && w < firstWk) firstWk = w; });
+      var twelveBack = nowWk;
+      for (var b = 0; b < 11; b++) twelveBack = addDays(twelveBack, -7);
+      var startWk = rangeFrom ? weekStartOf(rangeFrom) : (firstWk < twelveBack ? firstWk : twelveBack);
+      var wks = [];
+      for (var c = startWk, guard = 0; c <= nowWk && guard < 400; c = addDays(c, 7), guard++) wks.push(c);
+      var series = {};
+      keys.forEach(function (k) { series[k] = wks.map(function () { return 0; }); });
+      events.forEach(function (r) {
+        var idx = wks.indexOf(weekStartOf(r.date));
+        if (idx >= 0) keyOf(r).forEach(function (k) { series[k][idx]++; });
+      });
+      keys = keys.filter(function (k) { return series[k].some(function (n) { return n > 0; }); });
+      labels = wks.map(shortWeekLabel);
+      chartType = 'bar';
+      name = isPlay ? 'Play' : 'Symptoms';
+      data = events.length ? [1] : []; // marks "has data" for the empty check
+      chartConfig = {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: keys.map(function (k) {
+            return { label: names[k], data: series[k], backgroundColor: colors[k], borderWidth: 0, borderRadius: 4, stack: 'w' };
+          })
+        }
+      };
     } else if (mode === 'gi-weekly') {
       var bucket2 = buildWeeklyBuckets(['vomit', 'diarrhea'], 12);
       labels = bucket2.weeks.map(shortWeekLabel);
@@ -2322,12 +2536,13 @@ body.vr-open { overflow: hidden; }
       });
     }
 
-    var isWeeklyMode = mode === 'vomit-weekly' || mode === 'diarrhea-weekly' || mode === 'gi-weekly';
+    var isStackedWeekly = mode === 'gi-weekly' || mode === 'play-weekly' || mode === 'symptom-weekly';
+    var isWeeklyMode = mode === 'vomit-weekly' || mode === 'diarrhea-weekly' || isStackedWeekly;
 
     // Empty state: for weekly modes we always have padded labels (≥12 weeks),
     // so the real "no data" signal is whether `data` ended up empty (we set it to []
     // when no events of the relevant type exist).
-    var isEmpty = isWeeklyMode ? (mode === 'gi-weekly' ? !data.length : data.every(function (n) { return n === 0; }))
+    var isEmpty = isWeeklyMode ? (isStackedWeekly ? !data.length : data.every(function (n) { return n === 0; }))
                                 : !labels.length;
     if (isEmpty) {
       var ctx = canvas.getContext('2d');
@@ -2364,7 +2579,7 @@ body.vr-open { overflow: hidden; }
       };
     }
 
-    var showLegend = mode === 'gi-weekly' || (mode === 'weight' && chartConfig.data.datasets.length > 1);
+    var showLegend = isStackedWeekly || (mode === 'weight' && chartConfig.data.datasets.length > 1);
 
     chartConfig.options = {
       responsive: true,
@@ -2398,7 +2613,8 @@ body.vr-open { overflow: hidden; }
             title: function (items) { return 'Week of ' + (items[0] && items[0].label); },
             label: function (item) {
               var v = item.parsed.y;
-              return item.dataset.label + ': ' + v + (v === 1 ? ' episode' : ' episodes');
+              var unit = mode === 'play-weekly' ? ['session', 'sessions'] : mode === 'symptom-weekly' ? ['log', 'logs'] : ['episode', 'episodes'];
+              return item.dataset.label + ': ' + v + ' ' + (v === 1 ? unit[0] : unit[1]);
             }
           } : undefined
         }
@@ -2406,13 +2622,13 @@ body.vr-open { overflow: hidden; }
       scales: {
         y: {
           beginAtZero: mode !== 'weight',
-          stacked: mode === 'gi-weekly',
+          stacked: isStackedWeekly,
           ticks: { precision: 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined },
           grid: { color: C.grid },
-          title: isWeeklyMode ? { display: true, text: 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
+          title: isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : mode === 'symptom-weekly' ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
         },
         x: isTimeMode ? timeAxis() : {
-          stacked: mode === 'gi-weekly',
+          stacked: isStackedWeekly,
           ticks: { color: C.text, font: { family: 'Geist', size: 11 }, maxRotation: 0, autoSkip: true, autoSkipPadding: 16 },
           grid: { display: false }
         }
@@ -2588,6 +2804,10 @@ body.vr-open { overflow: hidden; }
     record.meds = readMedRows();
     // Tags outside the chip set (kept from older data) survive an edit untouched.
     record.tags = (existing ? existing.tags.filter(function (t) { return TAGS.indexOf(t) < 0; }) : []).concat(readTags());
+    // Labels and play size only count when their tag is chosen
+    record.symptoms = tagPressed('symptom') ? formLabels.symptom.slice() : [];
+    record.playKinds = tagPressed('activity') ? formLabels.play.slice() : [];
+    record.playSize = tagPressed('activity') ? formPlaySize : '';
     if (isBlankRecord(record)) return toast('Enter something to log');
     if (existing) {
       // Keep when each medicine was given, if it's still on the log.
@@ -2625,6 +2845,9 @@ body.vr-open { overflow: hidden; }
     $('rFood').value = r.food || '';
     $('rNote').value = r.note || '';
     setTags(r.tags);
+    formLabels = { symptom: (r.symptoms || []).slice(), play: (r.playKinds || []).slice() };
+    formPlaySize = r.playSize || '';
+    renderLabelPanel();
     $('medRows').innerHTML = '';
     r.meds.forEach(function (m) { addMedRow(m.name, m.note); });
     renderStars();
@@ -2654,6 +2877,10 @@ body.vr-open { overflow: hidden; }
     ['rMood', 'rWeight', 'rActivity', 'rCost', 'rFood', 'rNote'].forEach(function (id) { $(id).value = ''; });
     $('rDate').value = today();
     setTags([]);
+    formLabels = { symptom: [], play: [] };
+    formPlaySize = '';
+    labelEditMode = { symptom: false, play: false };
+    renderLabelPanel();
     $('medRows').innerHTML = '';
     renderStars();
     $('formTitle').textContent = 'Add health log';
@@ -2668,11 +2895,12 @@ body.vr-open { overflow: hidden; }
   }
 
   function exportCsv() {
-    var rows = [['pet', 'species', 'breed', 'date', 'types', 'weight', 'mood', 'activity', 'cost', 'food', 'medications', 'note']];
+    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'medications', 'note']];
     state.records.forEach(function (r) {
       var p = state.pets.find(function (x) { return x.id === r.petId; }) || {};
       var meds = r.meds.map(function (m) { return m.name + (m.note ? ' (' + m.note + ')' : ''); }).join('; ');
-      rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), r.weight, r.mood, r.activity, r.cost, r.food, meds, r.note]);
+      rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), (r.symptoms || []).join('; '), r.playSize || '', (r.playKinds || []).join('; '),
+        r.weight, r.mood, r.activity, r.cost, r.food, meds, r.note]);
     });
     var csv = rows.map(function (row) {
       return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
@@ -2860,9 +3088,35 @@ body.vr-open { overflow: hidden; }
       var medicineOnly = r.meds.length && !r.tags.length && !has(r.weight) && !r.food && !has(r.activity) && !has(r.mood);
       if (medicineOnly) return false;
       return !!r.note || hasTag(r, 'symptom') || hasTag(r, 'vet');
-    }).map(function (r) { return { date: r.date, kinds: kindsOf(r), note: r.note }; });
+    }).map(function (r) {
+      var detail = (r.symptoms || []).slice();
+      if (hasTag(r, 'activity')) {
+        if (PLAY_SIZES[r.playSize]) detail.push(PLAY_SIZES[r.playSize] + ' play');
+        detail = detail.concat(r.playKinds || []);
+      }
+      return { date: r.date, kinds: kindsOf(r), detail: detail, note: r.note };
+    });
+
+    // Label counts for symptoms, and play sessions by size and kind
+    function countLabels(list) {
+      var n = {}, spelled = {};
+      list.forEach(function (l) { var k = normName(l); if (!k) return; n[k] = (n[k] || 0) + 1; spelled[k] = l; });
+      return Object.keys(n).sort(function (a, b) { return n[b] - n[a] || a.localeCompare(b); })
+        .map(function (k) { return { name: spelled[k], count: n[k] }; });
+    }
+    var symptomLogs = recs.filter(function (r) { return hasTag(r, 'symptom'); });
+    var playLogs = recs.filter(function (r) { return hasTag(r, 'activity'); });
+    var sizes = { big: 0, decent: 0, short: 0, tiny: 0 };
+    playLogs.forEach(function (r) { if (sizes[r.playSize] !== undefined) sizes[r.playSize]++; });
 
     return {
+      symptomCount: symptomLogs.length,
+      symptomLabels: countLabels([].concat.apply([], symptomLogs.map(function (r) { return r.symptoms || []; }))),
+      play: {
+        sessions: playLogs.length,
+        sizes: sizes,
+        kinds: countLabels([].concat.apply([], playLogs.map(function (r) { return r.playKinds || []; })))
+      },
       pet: pet, from: from, to: to, days: dayCount(from, to), logs: recs,
       weight: weight, medicines: medicines,
       vomit: episodes('vomit'), diarrhea: episodes('diarrhea'), notes: notes
@@ -2937,12 +3191,29 @@ body.vr-open { overflow: hidden; }
     }
     h += '</section>';
 
+    // Play
+    if (sum.play.sessions) {
+      var pl = sum.play;
+      var sized = Object.keys(pl.sizes).filter(function (k) { return pl.sizes[k]; })
+        .map(function (k) { return PLAY_SIZES[k] + ' ' + pl.sizes[k]; });
+      h += '<section><h2>Play</h2><p><b>' + pl.sessions + '</b> play ' + (pl.sessions === 1 ? 'session' : 'sessions') +
+        (sized.length ? ' · ' + esc(sized.join(' · ')) : '') + '</p>' +
+        (pl.kinds.length ? '<p class="vr-muted">' + pl.kinds.map(function (k) { return esc(k.name) + ' ' + k.count; }).join(' · ') + '</p>' : '') +
+        '</section>';
+    }
+
     // Symptoms and notes
     h += '<section><h2>Symptoms and notes</h2>';
+    if (sum.symptomLabels.length) {
+      h += '<p><b>' + sum.symptomCount + '</b> symptom ' + (sum.symptomCount === 1 ? 'log' : 'logs') + ' · ' +
+        sum.symptomLabels.map(function (l) { return esc(l.name) + ' ' + l.count; }).join(' · ') + '</p>';
+    }
     if (sum.notes.length) {
       h += '<div class="vr-scroll"><table><tr><th>Date</th><th>Type</th><th>Note</th></tr>' +
         sum.notes.map(function (n) {
-          return '<tr><td>' + esc(formatDate(n.date)) + '</td><td>' + esc(n.kinds.map(label).join(', ') || 'Note') + '</td><td>' + esc(n.note || '') + '</td></tr>';
+          return '<tr><td>' + esc(formatDate(n.date)) + '</td><td>' + esc(n.kinds.map(label).join(', ') || 'Note') +
+            (n.detail.length ? '<div class="vr-muted">' + esc(n.detail.join(', ')) + '</div>' : '') +
+            '</td><td>' + esc(n.note || '') + '</td></tr>';
         }).join('') + '</table></div>';
     } else {
       h += '<p class="vr-muted">None logged in this period.</p>';
@@ -2958,6 +3229,8 @@ body.vr-open { overflow: hidden; }
           if (has(r.weight)) bits.push('Weight ' + wt(r.weight));
           r.meds.forEach(function (m) { bits.push(esc(m.name) + (m.note ? ' (' + esc(m.note) + ')' : '')); });
           r.tags.forEach(function (tg) { bits.push(esc(label(tg))); });
+          if (PLAY_SIZES[r.playSize]) bits.push(esc(PLAY_SIZES[r.playSize]) + ' play');
+          (r.playKinds || []).concat(r.symptoms || []).forEach(function (l) { bits.push(esc(l)); });
           if (r.food) bits.push('Food: ' + esc(r.food));
           if (has(r.activity)) bits.push('Activity ' + esc(r.activity) + ' min');
           if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
@@ -3151,7 +3424,8 @@ body.vr-open { overflow: hidden; }
   // Older logs had a single `type` and a single `med` string; they're converted
   // on every read, so data written by an older copy of the app still loads.
   function blankRecord(petId, date) {
-    return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', meds: [], tags: [], note: '' };
+    return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', meds: [], tags: [], note: '',
+      symptoms: [], playSize: '', playKinds: [] };
   }
   function normalizeRecord(raw) {
     if (Number(raw && raw.v) > DATA_VERSION) newerDataSeen = true;
@@ -3348,6 +3622,13 @@ body.vr-open { overflow: hidden; }
       return true;
     });
     out.tags = remote.tags.concat(local.tags).filter(function (t, i, all) { return all.indexOf(t) === i; });
+    function union(a, b) {
+      var seen = {};
+      return (a || []).concat(b || []).filter(function (x) { var k = normName(x); if (seen[k]) return false; seen[k] = true; return true; });
+    }
+    out.symptoms = union(remote.symptoms, local.symptoms);
+    out.playKinds = union(remote.playKinds, local.playKinds);
+    if (!local.playSize && remote.playSize) out.playSize = remote.playSize;
     return out;
   }
   // True if this device holds anything besides the untouched demo data.
