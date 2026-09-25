@@ -1,0 +1,14 @@
+{
+  "name": "pet-health-tracker-tests",
+  "private": true,
+  "description": "Tests for Pet Health Tracker. Run: npm install, then npm test",
+  "scripts": {
+    "test": "node run-tests.js"
+  },
+  "dependencies": {
+    "jsdom": "^26.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
