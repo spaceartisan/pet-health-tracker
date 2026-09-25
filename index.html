@@ -1075,6 +1075,52 @@ h1 {
   --chart-tooltip: #15212a;
 }
 
+/* ============ VET SUMMARY ============ */
+/* Deliberately plain black on white in every theme, so it prints cleanly. */
+.vs-custom[hidden] { display: none; }
+.vs-check { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; font-size: 14px; color: var(--ink); }
+.vs-check input { width: 20px; min-height: 20px; height: 20px; margin: 0; }
+.vet-report {
+  position: fixed; inset: 0; z-index: 400; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: #e8e8e6; color: #111;
+}
+.vet-report[hidden] { display: none; }
+body.vr-open { overflow: hidden; }
+.vr-toolbar {
+  position: sticky; top: 0; z-index: 1; display: flex; justify-content: flex-end; gap: 8px;
+  padding: calc(10px + var(--safe-top)) calc(16px + var(--safe-right)) 10px calc(16px + var(--safe-left));
+  background: rgba(232, 232, 230, .95);
+}
+.vr-page {
+  max-width: 820px; margin: 8px auto calc(40px + var(--safe-bottom)); padding: 36px 40px;
+  background: #fff; color: #111; font-family: var(--sans); font-size: 13px; line-height: 1.45;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, .12);
+}
+.vr-page h1 { font-family: var(--display); font-weight: 600; font-size: 26px; margin: 0 0 4px; letter-spacing: -.01em; }
+.vr-page h2 {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  margin: 24px 0 8px; padding-bottom: 4px; border-bottom: 1.5px solid #111;
+}
+.vr-head p { margin: 2px 0; }
+.vr-page table { width: 100%; border-collapse: collapse; }
+.vr-page th, .vr-page td { text-align: left; vertical-align: top; padding: 6px 10px 6px 0; border-bottom: 1px solid #ddd; }
+.vr-page th { font-size: 11px; font-weight: 600; color: #555; }
+.vr-page tr { break-inside: avoid; page-break-inside: avoid; }
+.vr-muted { color: #555; }
+.vr-scroll { overflow-x: auto; }
+.vr-chart { display: block; width: 100%; height: auto; margin-top: 10px; font-family: var(--sans); font-size: 11px; fill: #555; }
+.vr-foot { margin-top: 28px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 11px; color: #555; }
+@media (max-width: 720px) { .vr-page { margin: 0 0 40px; padding: 20px 16px; box-shadow: none; } }
+@media print {
+  @page { margin: 14mm; }
+  html, body { background: #fff !important; }
+  body.vr-open { overflow: visible !important; }
+  body > *:not(#vetReport) { display: none !important; }
+  .vet-report { position: static; overflow: visible; background: #fff; }
+  .vr-toolbar { display: none !important; }
+  .vr-page { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+}
+
 /* Theme picker */
 .theme-list { display: grid; gap: 8px; }
 .theme-option {
@@ -1289,6 +1335,9 @@ h1 {
 <!-- Hidden file input for JSON import -->
 <input type="file" id="fileInput" accept="application/json,.json" class="sr-only" aria-hidden="true">
 
+<!-- Vet summary: shown over the app, and the only thing printed -->
+<div class="vet-report" id="vetReport" hidden></div>
+
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -1374,6 +1423,7 @@ h1 {
   modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+    else if (e.key === 'Escape' && !$('vetReport').hidden) closeVetReport();
   });
 
   // Mobile bottom nav
@@ -1485,9 +1535,11 @@ h1 {
     }
     $('heroIcon').textContent = p.icon || '🐾';
     $('heroName').innerHTML = esc(p.name) +
+      ' <button class="edit-pet" type="button" id="vetSummaryBtn">🩺 Vet summary</button>' +
       ' <button class="edit-pet" type="button" id="editPetBtn">Edit</button>' +
       ' <button class="edit-pet danger-action" type="button" id="deletePetBtn">Delete</button>';
     $('editPetBtn').addEventListener('click', function () { openEditPetModal(p); });
+    $('vetSummaryBtn').addEventListener('click', openVetSummaryDialog);
     $('deletePetBtn').addEventListener('click', function () { confirmDeletePet(p); });
     $('heroMeta').textContent = (p.species || 'Pet') + (p.breed ? ' · ' + p.breed : '') + age(p.birthday);
 
@@ -2647,6 +2699,311 @@ h1 {
     }
   }
 
+  // ===== VET SUMMARY =====
+  // A one-page summary of one pet over a period, for handing to a vet. It's
+  // shown over the app and printed (or saved as PDF) with the browser's print
+  // dialog. Only that pet's data goes in; never the vault code.
+  function dayCount(from, to) {
+    return Math.round((new Date(to + 'T00:00:00') - new Date(from + 'T00:00:00')) / 864e5) + 1;
+  }
+  function shiftDay(dateStr, n) {
+    var d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return localDate(d);
+  }
+  function shortDate(d) {
+    var dt = new Date(d + 'T00:00:00');
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function lastVetVisit(pet) {
+    var t = today(), last = '';
+    state.records.forEach(function (r) {
+      if (r.petId === pet.id && hasTag(r, 'vet') && r.date <= t && r.date > last) last = r.date;
+    });
+    return last;
+  }
+  // Everything the summary shows, worked out from the logs.
+  function computeVetSummary(pet, from, to) {
+    var recs = state.records
+      .filter(function (r) { return r.petId === pet.id && r.date >= from && r.date <= to; })
+      .sort(function (a, b) { return a.date === b.date ? String(a.loggedAt || '').localeCompare(String(b.loggedAt || '')) : a.date.localeCompare(b.date); });
+
+    // Weight: the last weigh-in of each day
+    var byDay = {};
+    recs.forEach(function (r) { if (has(r.weight) && isFinite(Number(r.weight))) byDay[r.date] = Number(r.weight); });
+    var wDays = Object.keys(byDay).sort();
+    var weight = null;
+    if (wDays.length) {
+      var vals = wDays.map(function (d) { return byDay[d]; });
+      var first = vals[0], last = vals[vals.length - 1];
+      weight = {
+        first: { date: wDays[0], value: first },
+        last: { date: wDays[wDays.length - 1], value: last },
+        min: Math.min.apply(null, vals),
+        max: Math.max.apply(null, vals),
+        change: last - first,
+        pct: first ? (last - first) / first * 100 : 0,
+        points: wDays.map(function (d) { return { date: d, value: byDay[d] }; })
+      };
+    }
+
+    // Medicines: days given, current dose, dose changes, and for daily-routine
+    // medicines, how many of the expected days they were given
+    var meds = {}, order = [];
+    recs.forEach(function (r) {
+      r.meds.forEach(function (m) {
+        var k = normName(m.name);
+        if (!k) return;
+        if (!meds[k]) { meds[k] = { name: m.name, days: {}, dose: '', changes: [] }; order.push(k); }
+        var md = meds[k];
+        md.name = m.name;
+        md.days[r.date] = true;
+        var note = String(m.note || (r.meds.length === 1 ? r.note : '') || '').trim();
+        if (note && normName(note) !== normName(md.dose)) {
+          if (md.dose) md.changes.push({ date: r.date, from: md.dose, to: note });
+          md.dose = note;
+        }
+      });
+    });
+    var t = today();
+    var medicines = order.map(function (k) {
+      var md = meds[k];
+      var days = Object.keys(md.days).sort();
+      var out = { name: md.name, dose: md.dose, changes: md.changes, daysGiven: days.length, first: days[0], last: days[days.length - 1] };
+      var daily = (pet.routine || []).some(function (it) { return it.kind !== 'weight' && normName(it.med) === k; });
+      if (daily) {
+        // Count from the period start if it was already being given, otherwise from its first dose
+        var givenBefore = state.records.some(function (r) {
+          return r.petId === pet.id && r.date < from && r.meds.some(function (m) { return normName(m.name) === k; });
+        });
+        var start = givenBefore ? from : days[0];
+        var end = to < t ? to : t;
+        if (end === t && !md.days[t]) end = shiftDay(t, -1); // today isn't over yet
+        if (start <= end) {
+          var missed = [];
+          for (var d = start; d <= end; d = shiftDay(d, 1)) if (!md.days[d]) missed.push(d);
+          out.expected = dayCount(start, end);
+          out.given = out.expected - missed.length;
+          out.missed = missed;
+        }
+      }
+      return out;
+    });
+
+    // Vomiting and diarrhea
+    function episodes(tag) {
+      return recs.filter(function (r) { return hasTag(r, tag); }).map(function (r) { return { date: r.date, note: r.note }; });
+    }
+    // Other notes: symptoms, vet visits, and any log with a note, except
+    // medicine-only logs (their notes are doses) and episodes (listed above)
+    var notes = recs.filter(function (r) {
+      if (hasTag(r, 'vomit') || hasTag(r, 'diarrhea')) return false;
+      var medicineOnly = r.meds.length && !r.tags.length && !has(r.weight) && !r.food && !has(r.activity) && !has(r.mood);
+      if (medicineOnly) return false;
+      return !!r.note || hasTag(r, 'symptom') || hasTag(r, 'vet');
+    }).map(function (r) { return { date: r.date, kinds: kindsOf(r), note: r.note }; });
+
+    return {
+      pet: pet, from: from, to: to, days: dayCount(from, to), logs: recs,
+      weight: weight, medicines: medicines,
+      vomit: episodes('vomit'), diarrhea: episodes('diarrhea'), notes: notes
+    };
+  }
+
+  function renderVetReport(sum, unit, fullLog) {
+    var p = sum.pet;
+    var u = unit === 'kg' ? 'kg' : 'lb';
+    function num(v) { return esc(Number(v).toFixed(2).replace(/\.?0+$/, '')); }
+    function wt(v) { return num(v) + ' ' + u; }
+    function signed(v, digits) { return (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v).toFixed(digits); }
+    var h = '';
+
+    // Pet and period
+    h += '<header class="vr-head"><h1>Health summary: ' + esc(p.name) + '</h1>' +
+      '<p>' + esc((p.species || 'Pet') + (p.breed ? ' · ' + p.breed : '') + age(p.birthday)) + '</p>' +
+      '<p class="vr-muted">' + esc(formatDate(sum.from)) + ' – ' + esc(formatDate(sum.to)) + ' (' + sum.days + ' days) · Weights in ' + u + '</p></header>';
+
+    // Weight
+    h += '<section><h2>Weight</h2>';
+    if (sum.weight) {
+      var w = sum.weight;
+      h += '<div class="vr-scroll"><table><tr><th>Start</th><th>Latest</th><th>Change</th><th>Range</th></tr><tr>' +
+        '<td>' + wt(w.first.value) + '<div class="vr-muted">' + esc(formatDate(w.first.date)) + '</div></td>' +
+        '<td>' + wt(w.last.value) + '<div class="vr-muted">' + esc(formatDate(w.last.date)) + '</div></td>' +
+        '<td>' + signed(w.change, 2) + ' ' + u + '<div class="vr-muted">' + signed(w.pct, 1) + '%</div></td>' +
+        '<td>' + num(w.min) + '–' + num(w.max) + ' ' + u + '<div class="vr-muted">' + w.points.length + ' weigh-ins</div></td>' +
+        '</tr></table></div>';
+      if (w.points.length > 1) h += weightSparkline(w, u);
+    } else {
+      h += '<p class="vr-muted">No weights logged in this period.</p>';
+    }
+    h += '</section>';
+
+    // Medicines
+    h += '<section><h2>Medicines</h2>';
+    if (sum.medicines.length) {
+      h += '<div class="vr-scroll"><table><tr><th>Medicine</th><th>Latest dose</th><th>Given</th><th>Dose changes</th></tr>' +
+        sum.medicines.map(function (m) {
+          var given;
+          if (m.expected) {
+            given = m.given + ' of ' + m.expected + ' days';
+            if (m.missed.length && m.missed.length <= 6) given += '<div class="vr-muted">Missed: ' + m.missed.map(function (d) { return esc(shortDate(d)); }).join(', ') + '</div>';
+            else if (m.missed.length) given += '<div class="vr-muted">' + m.missed.length + ' days missed</div>';
+          } else {
+            given = m.daysGiven + (m.daysGiven === 1 ? ' day' : ' days') +
+              '<div class="vr-muted">' + esc(shortDate(m.first)) + (m.last !== m.first ? ' – ' + esc(shortDate(m.last)) : '') + '</div>';
+          }
+          var changes = m.changes.length
+            ? m.changes.map(function (c) { return esc(shortDate(c.date)) + ': ' + esc(c.from) + ' → ' + esc(c.to); }).join('<br>')
+            : '<span class="vr-muted">None</span>';
+          return '<tr><td><b>' + esc(m.name) + '</b></td><td>' + (m.dose ? esc(m.dose) : '<span class="vr-muted">Not recorded</span>') + '</td><td>' + given + '</td><td>' + changes + '</td></tr>';
+        }).join('') + '</table></div>';
+    } else {
+      h += '<p class="vr-muted">No medicines logged in this period.</p>';
+    }
+    h += '</section>';
+
+    // Vomiting and diarrhea
+    h += '<section><h2>Vomiting and diarrhea</h2>';
+    if (sum.vomit.length || sum.diarrhea.length) {
+      h += '<p>Vomiting: <b>' + sum.vomit.length + '</b> · Diarrhea: <b>' + sum.diarrhea.length + '</b></p>' +
+        '<div class="vr-scroll"><table><tr><th>Date</th><th>Episode</th><th>Note</th></tr>' +
+        sum.vomit.map(function (e) { return { date: e.date, what: 'Vomiting', note: e.note }; })
+          .concat(sum.diarrhea.map(function (e) { return { date: e.date, what: 'Diarrhea', note: e.note }; }))
+          .sort(function (a, b) { return a.date.localeCompare(b.date); })
+          .map(function (e) { return '<tr><td>' + esc(formatDate(e.date)) + '</td><td>' + e.what + '</td><td>' + esc(e.note || '') + '</td></tr>'; }).join('') +
+        '</table></div>';
+    } else {
+      h += '<p class="vr-muted">None logged in this period.</p>';
+    }
+    h += '</section>';
+
+    // Symptoms and notes
+    h += '<section><h2>Symptoms and notes</h2>';
+    if (sum.notes.length) {
+      h += '<div class="vr-scroll"><table><tr><th>Date</th><th>Type</th><th>Note</th></tr>' +
+        sum.notes.map(function (n) {
+          return '<tr><td>' + esc(formatDate(n.date)) + '</td><td>' + esc(n.kinds.map(label).join(', ') || 'Note') + '</td><td>' + esc(n.note || '') + '</td></tr>';
+        }).join('') + '</table></div>';
+    } else {
+      h += '<p class="vr-muted">None logged in this period.</p>';
+    }
+    h += '</section>';
+
+    // Every log, if asked for
+    if (fullLog) {
+      h += '<section class="vr-full"><h2>All logs (' + sum.logs.length + ')</h2>';
+      h += sum.logs.length ? '<div class="vr-scroll"><table><tr><th>Date</th><th>Recorded</th><th>Note</th></tr>' +
+        sum.logs.map(function (r) {
+          var bits = [];
+          if (has(r.weight)) bits.push('Weight ' + wt(r.weight));
+          r.meds.forEach(function (m) { bits.push(esc(m.name) + (m.note ? ' (' + esc(m.note) + ')' : '')); });
+          r.tags.forEach(function (tg) { bits.push(esc(label(tg))); });
+          if (r.food) bits.push('Food: ' + esc(r.food));
+          if (has(r.activity)) bits.push('Activity ' + esc(r.activity) + ' min');
+          if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
+          if (has(r.cost)) bits.push('Cost $' + esc(r.cost));
+          return '<tr><td>' + esc(formatDate(r.date)) + '</td><td>' + (bits.join('; ') || '—') + '</td><td>' + esc(r.note || '') + '</td></tr>';
+        }).join('') + '</table></div>' : '<p class="vr-muted">No logs in this period.</p>';
+      h += '</section>';
+    }
+
+    h += '<footer class="vr-foot">Recorded by the owner in Pet Health Tracker · Created ' + esc(formatDate(today())) + '</footer>';
+    return h;
+  }
+  // Small weight chart for the printout, drawn as SVG so it prints crisply.
+  // Spaced by date, so gaps between weigh-ins show as gaps.
+  function weightSparkline(w, u) {
+    var W = 640, H = 130, padL = 46, padR = 10, padT = 10, padB = 22;
+    var d0 = new Date(w.points[0].date + 'T00:00:00').getTime();
+    var d1 = new Date(w.points[w.points.length - 1].date + 'T00:00:00').getTime();
+    var lo = w.min, hi = w.max;
+    if (hi === lo) { hi += 0.5; lo -= 0.5; }
+    function x(d) { return padL + (d1 === d0 ? 0.5 : (new Date(d + 'T00:00:00').getTime() - d0) / (d1 - d0)) * (W - padL - padR); }
+    function y(v) { return padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB); }
+    var pts = w.points.map(function (p) { return x(p.date).toFixed(1) + ',' + y(p.value).toFixed(1); }).join(' ');
+    return '<svg class="vr-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Weight over the period">' +
+      '<line x1="' + padL + '" y1="' + y(w.max).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y(w.max).toFixed(1) + '" stroke="#ddd"/>' +
+      '<line x1="' + padL + '" y1="' + y(w.min).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y(w.min).toFixed(1) + '" stroke="#ddd"/>' +
+      '<text x="' + (padL - 6) + '" y="' + (y(w.max) + 4).toFixed(1) + '" text-anchor="end">' + esc(Number(w.max).toFixed(2)) + '</text>' +
+      '<text x="' + (padL - 6) + '" y="' + (y(w.min) + 4).toFixed(1) + '" text-anchor="end">' + esc(Number(w.min).toFixed(2)) + '</text>' +
+      '<polyline fill="none" stroke="#222" stroke-width="1.5" points="' + pts + '"/>' +
+      '<text x="' + padL + '" y="' + (H - 4) + '">' + esc(shortDate(w.points[0].date)) + '</text>' +
+      '<text x="' + (W - padR) + '" y="' + (H - 4) + '" text-anchor="end">' + esc(shortDate(w.points[w.points.length - 1].date)) + '</text>' +
+    '</svg>';
+  }
+
+  function openVetSummaryDialog() {
+    var p = activePet();
+    if (!p) return toast('Add a pet first');
+    var lastVet = lastVetVisit(p);
+    var savedUnit = 'lb';
+    try { savedUnit = localStorage.getItem('petHealth.weightUnit') || 'lb'; } catch (e) {}
+    modalTitle.textContent = 'Vet summary for ' + p.name;
+    modalBody.innerHTML =
+      '<p class="routine-intro">A one-page summary to print or save as a PDF for your vet.</p>' +
+      '<label class="field">Period<select id="vsPeriod">' +
+        (lastVet ? '<option value="vet">Since last vet visit (' + esc(formatDate(lastVet)) + ')</option>' : '') +
+        '<option value="30">Last 30 days</option>' +
+        '<option value="90">Last 90 days</option>' +
+        '<option value="custom">Choose dates…</option>' +
+      '</select></label>' +
+      '<div class="form-grid cols-2 vs-custom" id="vsCustom" hidden style="margin-top:10px">' +
+        '<label class="field">From<input type="date" id="vsFrom"></label>' +
+        '<label class="field">To<input type="date" id="vsTo"></label>' +
+      '</div>' +
+      '<label class="field" style="margin-top:10px">Weights were recorded in<select id="vsUnit">' +
+        '<option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option>' +
+      '</select></label>' +
+      '<label class="vs-check"><input type="checkbox" id="vsFullLog"> Also include every log at the end</label>' +
+      '<p class="routine-intro" style="color:var(--muted)">Only ' + esc(p.name) + '\'s logs are included, never your sync code.</p>' +
+      '<div class="form-actions"><button class="sage" id="vsCreate" type="button">Create summary</button>' +
+      '<button class="ghost" id="vsCancel" type="button">Cancel</button></div>';
+    $('vsPeriod').value = lastVet ? 'vet' : '90';
+    $('vsUnit').value = savedUnit === 'kg' ? 'kg' : 'lb';
+    $('vsFrom').value = shiftDay(today(), -89);
+    $('vsTo').value = today();
+    $('vsPeriod').addEventListener('change', function () { $('vsCustom').hidden = $('vsPeriod').value !== 'custom'; });
+    $('vsCancel').addEventListener('click', closeModal);
+    $('vsCreate').addEventListener('click', function () {
+      var t = today(), from, to = t, period = $('vsPeriod').value;
+      if (period === 'vet') from = lastVet;
+      else if (period === '30') from = shiftDay(t, -29);
+      else if (period === '90') from = shiftDay(t, -89);
+      else {
+        from = $('vsFrom').value; to = $('vsTo').value;
+        if (!from || !to) return toast('Choose both dates');
+        if (from > to) return toast('The start date is after the end date');
+      }
+      var unit = $('vsUnit').value;
+      try { localStorage.setItem('petHealth.weightUnit', unit); } catch (e) {}
+      var fullLog = $('vsFullLog').checked;
+      closeModal();
+      openVetReport(p, from, to, unit, fullLog);
+    });
+    openModal();
+  }
+  function openVetReport(pet, from, to, unit, fullLog) {
+    var report = $('vetReport');
+    report.innerHTML =
+      '<div class="vr-toolbar">' +
+        '<button class="sage" id="vrPrint" type="button">Print / Save as PDF</button>' +
+        '<button class="secondary" id="vrClose" type="button">Close</button>' +
+      '</div>' +
+      '<article class="vr-page">' + renderVetReport(computeVetSummary(pet, from, to), unit, fullLog) + '</article>';
+    report.hidden = false;
+    report.scrollTop = 0;
+    document.body.classList.add('vr-open');
+    $('vrPrint').addEventListener('click', function () { window.print(); });
+    $('vrClose').addEventListener('click', closeVetReport);
+  }
+  function closeVetReport() {
+    var report = $('vetReport');
+    report.hidden = true;
+    report.innerHTML = '';
+    document.body.classList.remove('vr-open');
+  }
+
   // ===== COLOR THEMES =====
   // Saved per device, so each person picks their own. Colors live in the CSS
   // (:root and :root[data-theme="..."]); swatches here are just for the picker.
@@ -2690,11 +3047,13 @@ h1 {
         '<button class="menu-item" id="miImport" type="button"><span class="menu-icon">⬆</span>Import JSON</button>' +
         '<button class="menu-item" id="miExportCsv" type="button"><span class="menu-icon">📊</span>Export CSV</button>' +
         '<button class="menu-item" id="miExportJson" type="button"><span class="menu-icon">💾</span>Export JSON</button>' +
+        '<button class="menu-item" id="miVet" type="button"><span class="menu-icon">🩺</span>Vet summary</button>' +
         '<button class="menu-item" id="miTheme" type="button"><span class="menu-icon">🎨</span>Color theme</button>' +
       '</div>';
     openModal();
     $('miAuth').addEventListener('click', function () { closeModal(); handleAuthClick(); });
     $('miTheme').addEventListener('click', function () { closeModal(); setTimeout(openThemePicker, 250); });
+    $('miVet').addEventListener('click', function () { closeModal(); setTimeout(openVetSummaryDialog, 250); });
     $('miAddPet').addEventListener('click', function () { closeModal(); setTimeout(openAddPetModal, 250); });
     $('miImport').addEventListener('click', function () { closeModal(); triggerImport(); });
     $('miExportCsv').addEventListener('click', function () { closeModal(); exportCsv(); });

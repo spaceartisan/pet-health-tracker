@@ -792,6 +792,121 @@ async function themes() {
 }
 
 // =====================================================================
+// VET SUMMARY
+// =====================================================================
+async function vetSummary() {
+  const sampleOf = (fn) => SAMPLE[CODE].records.filter((r) => r.petId === 'p-pepper' && fn(r));
+  const inRange = (from, to) => (r) => r.date >= from && r.date <= to;
+  const weightOn = (d) => sampleOf((r) => r.type === 'weight' && r.date === d)[0].weight;
+  const fmt = (n) => Number(n).toFixed(2).replace(/\.?0+$/, '');
+  const data = withRoutine(vault(CODE), ROUTINE);
+  resetServer({ [CODE]: data });
+  let A = openApp(makeClient('a'), linked(CODE, data));
+  await settle();
+  let printed = 0;
+  A.w.print = () => { printed++; };
+  const report = () => A.$('vetReport');
+  const text = () => report().textContent;
+  const create = (setup) => { A.click('vetSummaryBtn'); if (setup) setup(); A.click('vsCreate'); };
+  const medRow = (name) => [...report().querySelectorAll('tr')].find((tr) => tr.querySelector('b') && tr.querySelector('b').textContent === name);
+
+  // Options window
+  A.click('vetSummaryBtn');
+  const periods = [...A.$('vsPeriod').options].map((o) => o.value);
+  check('no vet visit logged: "since last vet visit" not offered', !periods.includes('vet') && A.$('vsPeriod').value === '90', periods);
+  check('pounds by default', A.$('vsUnit').value === 'lb');
+  check('full log off by default', A.$('vsFullLog').checked === false);
+  A.click('vsCancel');
+
+  // Last 90 days (Jun 27 – Sep 24)
+  create();
+  check('summary opens', !report().hidden && /Health summary: Pepper/.test(text()));
+  check('shows the period', text().includes('(90 days)') && text().includes('Weights in lb'));
+  const wStart = weightOn('2026-06-27'), wEnd = weightOn('2026-09-23');
+  check('weight: start and latest', text().includes(fmt(wStart) + ' lb') && text().includes(fmt(wEnd) + ' lb'), [wStart, wEnd]);
+  const change = wEnd - wStart;
+  check('weight: change and percentage', text().includes((change >= 0 ? '+' : '−') + Math.abs(change).toFixed(2) + ' lb') &&
+    text().includes((change >= 0 ? '+' : '−') + Math.abs(change / wStart * 100).toFixed(1) + '%'));
+  check('weight: chart drawn', !!report().querySelector('svg.vr-chart polyline'));
+  check('daily medicine: given 89 of 89 days (today not counted yet)', medRow('Famotidine') && medRow('Famotidine').textContent.includes('89 of 89 days'), medRow('Famotidine') && medRow('Famotidine').textContent);
+  check('latest dose shown', medRow('Famotidine').textContent.includes('Antacid 1/4 of a 10 mg pill twice a day'));
+  check('no dose change inside this period', medRow('Famotidine').textContent.includes('None'));
+  const vomits = sampleOf((r) => r.type === 'vomit' && inRange('2026-06-27', '2026-09-24')(r)).length;
+  check('vomiting count', text().includes('Vomiting: ' + vomits), vomits);
+  check('another pet\'s diarrhea is not included', text().includes('Diarrhea: 0'));
+  const noteRows = sampleOf((r) => ['symptom', 'activity'].includes(r.type) && inRange('2026-06-27', '2026-09-24')(r)).length;
+  const sections = [...report().querySelectorAll('section')];
+  const notesSection = sections.find((sec) => sec.querySelector('h2').textContent === 'Symptoms and notes');
+  check('symptoms and notes listed', notesSection.querySelectorAll('tr').length - 1 === noteRows, [notesSection.querySelectorAll('tr').length - 1, noteRows]);
+  check('medicine doses aren\'t repeated as notes', !notesSection.textContent.includes('Antacid') && !notesSection.textContent.includes('Probiotic'));
+  check('no full log unless asked', !report().querySelector('.vr-full'));
+  check('the vault code never appears', !report().innerHTML.includes(CODE));
+  A.click('vrPrint');
+  check('Print button opens the print dialog', printed === 1);
+  A.click('vrClose');
+  check('Close hides the summary', report().hidden && !A.d.body.classList.contains('vr-open'));
+
+  // Whole history: dose change, and counting from the first dose
+  create(() => { A.$('vsPeriod').value = 'custom'; A.$('vsPeriod').dispatchEvent(new A.w.Event('change')); A.$('vsFrom').value = '2026-04-01'; A.$('vsTo').value = '2026-09-23'; });
+  check('dose change listed with its date', medRow('Famotidine').textContent.includes('Antacid 1/6 of a 10 mg pill twice a day → Antacid 1/4 of a 10 mg pill twice a day') && /Jun 1\b/.test(medRow('Famotidine').textContent), medRow('Famotidine').textContent);
+  check('counted from the first dose when it started in the period', medRow('Proviable-DC').textContent.includes('146 of 146 days'), medRow('Proviable-DC').textContent);
+  A.click('vrClose');
+  create(() => { A.$('vsPeriod').value = 'custom'; A.$('vsPeriod').dispatchEvent(new A.w.Event('change')); A.$('vsFrom').value = '2026-09-10'; A.$('vsTo').value = '2026-09-01'; });
+  await settle();
+  check('rejects a start date after the end date', A.log.toasts.includes('The start date is after the end date') && report().hidden);
+  A.click('vsCancel');
+
+  // Kilograms, full log, remembered unit
+  create(() => { A.$('vsUnit').value = 'kg'; A.$('vsFullLog').checked = true; });
+  check('kilograms used throughout', text().includes('Weights in kg') && text().includes(fmt(wEnd) + ' kg') && !/\d lb\b/.test(text()));
+  const logsInRange = SAMPLE[CODE].records.filter((r) => r.petId === 'p-pepper' && inRange('2026-06-27', '2026-09-24')(r)).length;
+  check('full log lists every log in the period', report().querySelector('.vr-full') && report().querySelectorAll('.vr-full tr').length - 1 === logsInRange, [report().querySelectorAll('.vr-full tr').length - 1, logsInRange]);
+  A.d.dispatchEvent(new A.w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  check('Escape closes the summary', report().hidden);
+  A.click('vetSummaryBtn');
+  check('unit choice remembered on this device', A.$('vsUnit').value === 'kg');
+  A.click('vsCancel');
+  A.close();
+
+  // Missed doses, and "since last vet visit"
+  const d2 = withRoutine(vault(CODE), ROUTINE);
+  d2.records = d2.records.filter((r) => !(r.med === 'Famotidine' && (r.date === '2026-08-10' || r.date === '2026-08-11')));
+  d2.records.push({ id: 'vet1', petId: 'p-pepper', date: '2026-08-15', type: 'vet', weight: 11.3, note: 'Annual checkup, all good' });
+  resetServer({ [CODE]: d2 });
+  A = openApp(makeClient('b'), linked(CODE, d2));
+  await settle();
+  A.click('vetSummaryBtn');
+  check('"since last vet visit" is offered and chosen', A.$('vsPeriod').value === 'vet' && A.$('vsPeriod').options[0].textContent.includes('Aug 15, 2026'));
+  A.$('vsPeriod').value = '90';
+  A.click('vsCreate');
+  check('missed doses counted and listed', medRow('Famotidine').textContent.includes('87 of 89 days') && /Missed: Aug 10, Aug 11/.test(medRow('Famotidine').textContent), medRow('Famotidine').textContent);
+  check('vet visit appears in the notes', text().includes('Annual checkup, all good'));
+  A.click('vrClose');
+  A.click('vetSummaryBtn'); A.click('vsCreate');
+  check('"since last vet visit" covers Aug 15 to today', text().includes('(41 days)'));
+  A.click('vrClose');
+  A.close();
+
+  // Stored text is shown safely, and the phone menu has it too
+  const bad = vault(CODE);
+  const evil = '<img src=x id=pwned onerror="window.hacked=1">';
+  bad.pets[0].name = evil; bad.pets[0].breed = evil;
+  bad.records.push({ id: 'e1', petId: 'p-pepper', date: '2026-09-20', type: 'medication', med: evil, note: evil });
+  bad.records.push({ id: 'e2', petId: 'p-pepper', date: '2026-09-20', type: 'symptom', note: evil });
+  resetServer({ [CODE]: bad });
+  A = openApp(makeClient('c'), linked(CODE, bad));
+  await settle();
+  A.click('vetSummaryBtn'); A.$('vsFullLog').checked = true; A.click('vsCreate');
+  check('stored HTML in the summary is shown as text', !report().querySelector('#pwned') && text().includes('<img src=x'));
+  A.click('vrClose');
+  A.click('mobileFab');
+  check('vet summary is in the phone menu', !!A.$('miVet'));
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+  check('print shows only the summary', /@media print[\s\S]*body > \*:not\(#vetReport\)/.test(html));
+}
+
+// =====================================================================
 // PREVIOUS VERSION (optional): old and new copies of the app together
 // =====================================================================
 async function previousVersion() {
@@ -841,6 +956,7 @@ async function previousVersion() {
     await runGroup('Charts' + tag, charts);
     await runGroup('Update protection' + tag, updates);
     await runGroup('Themes' + tag, themes);
+    await runGroup('Vet summary' + tag, vetSummary);
     if (PREVIOUS_HTML) await runGroup('Previous version' + tag, previousVersion);
   }
   let pass = 0, total = 0;
