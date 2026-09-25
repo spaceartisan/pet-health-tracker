@@ -928,7 +928,7 @@ h1 {
 
 <div class="app">
   <div class="update-banner" id="updateBanner" role="alert" hidden>
-    <span>Your data was saved by a newer version of this app. Changes on this device won't be saved until you reload.</span>
+    <span id="updateBannerText"></span>
     <button type="button" class="sage tiny" onclick="location.reload()">Reload</button>
   </div>
   <header class="header">
@@ -1124,12 +1124,21 @@ h1 {
   // Event tags a user picks. Everything else about a log (weight, medication,
   // meal) is derived from the data it holds — see kindsOf().
   var TAGS = ['symptom', 'vomit', 'diarrhea', 'activity', 'vet'];
-  // Version of the saved log format. Bump it whenever the shape of a log
-  // changes. A device that finds logs in a newer format than it understands
-  // stops saving and asks for a reload, so an out-of-date copy of the app
-  // (e.g. a phone that hasn't reloaded since an update) can't damage them.
+  // App version, for keeping out-of-date copies of the app from damaging data.
+  // Every cloud save carries it (_v) plus a fresh write stamp (_w), and the
+  // Firestore rules reject saves below their minimum version. Logs also carry
+  // it (v): a device that finds logs from a newer version stops saving.
+  //
+  // To release an update that older copies must not save alongside:
+  //   1. Bump DATA_VERSION here and "version" in version.json to the same number.
+  //   2. Push, and wait until the new version is live on GitHub Pages.
+  //   3. Bump minVersion() in the Firestore rules to match, then Publish.
+  // Updates that don't need this can be pushed without changing any of them.
   var DATA_VERSION = 2;
   var newerDataSeen = false;
+  var updateNotice = '';   // message for the reload banner, if any
+  var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
+  var lastUpdateCheck = 0; // when version.json was last checked
 
   // ===== FIREBASE =====
   var db = null;
@@ -1202,9 +1211,44 @@ h1 {
   // Keep this device in step with the cloud if it's linked to a vault
   if (db && syncCode) startSync(false);
 
+  checkForUpdate(true);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') checkForUpdate(false);
+  });
+
   // ===== RENDER PIPELINE =====
+  // ===== UPDATES =====
+  function renderUpdateBanner() {
+    var msg = newerDataSeen
+      ? 'Your data was saved by a newer version of this app. Changes on this device won\'t be saved until you reload.'
+      : updateNotice;
+    $('updateBanner').hidden = !msg;
+    $('updateBannerText').textContent = msg;
+  }
+  function showUpdateNotice(msg) {
+    updateNotice = msg;
+    renderUpdateBanner();
+  }
+  // Ask the server which version is live (version.json, next to index.html).
+  // Checked on open and whenever the app comes back to the screen, so a phone
+  // that's kept the app open for days still hears about updates.
+  function checkForUpdate(force) {
+    var now = Date.now();
+    if (!force && now - lastUpdateCheck < 5 * 60 * 1000) return;
+    lastUpdateCheck = now;
+    if (!window.fetch) return;
+    fetch('version.json?t=' + now, { cache: 'no-store' })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (info) {
+        if (info && Number(info.version) > DATA_VERSION) {
+          showUpdateNotice('A new version of the app is available. Reload to update — anything unsynced is kept.');
+        }
+      })
+      .catch(function () { /* offline, or opened as a local file */ });
+  }
+
   function render() {
-    $('updateBanner').hidden = !newerDataSeen;
+    renderUpdateBanner();
     renderPets();
     renderSummary();
     renderToday();
@@ -2515,20 +2559,37 @@ h1 {
     writeLocal();
     pushToCloud();
   }
+  // Added to every cloud save. The rules require _v to be recent enough and _w
+  // to differ from the last save, which copies of the app from before this
+  // scheme never do, so their saves are refused.
+  function writeStamp() { return { _v: DATA_VERSION, _w: uid() }; }
   function pushToCloud() {
     if (!db || !syncCode || newerDataSeen) return;
     // Remember there are changes the cloud hasn't confirmed yet. This survives
     // the app being closed, so they're merged in next time instead of lost.
     try { localStorage.setItem(PENDING_KEY, '1'); } catch (e) {}
     if (!cloudReady) return; // sent once the latest cloud copy has arrived
+    if (cloudBlocked) return; // kept on this device and merged in after a reload
     var mySeq = ++writeSeq;
+    // A copy of what's being sent. If the cloud refuses it, Firestore rolls
+    // this device's view back to the server's copy; this puts the changes back.
+    var sent = JSON.parse(JSON.stringify({ pets: state.pets, records: state.records }));
     // merge:true keeps _email and _createdAt, which are written at code-generation time
     db.collection('vaults').doc(syncCode)
-      .set({ pets: state.pets, records: state.records }, { merge: true })
+      .set(Object.assign({ pets: state.pets, records: state.records }, writeStamp()), { merge: true })
       .then(function () {
         if (mySeq === writeSeq) { try { localStorage.removeItem(PENDING_KEY); } catch (e) {} }
       })
-      .catch(reportSyncError);
+      .catch(function (err) {
+        if (err && err.code === 'permission-denied') {
+          cloudBlocked = true;
+          state = mergeById(state, sent);
+          writeLocal();
+          try { localStorage.setItem(PENDING_KEY, '1'); } catch (e) {}
+          afterRemoteChange();
+        }
+        reportSyncError(err);
+      });
   }
   function hasPendingChanges() {
     try { return localStorage.getItem(PENDING_KEY) === '1'; } catch (e) { return false; }
@@ -2546,7 +2607,11 @@ h1 {
       var needsPush = false;
       if (doc.exists) {
         var remote = cleanState(doc.data());
-        if (first && !cloudReady && hasPendingChanges()) {
+        if (cloudBlocked) {
+          // This device can't save to the cloud until it reloads. Show what
+          // other devices change, but keep this device's unsent changes too.
+          state = mergeById(remote, state);
+        } else if (first && !cloudReady && hasPendingChanges()) {
           // Changes made on this device never reached the cloud (e.g. edited
           // offline, then the app was closed). Keep both sides.
           state = mergeById(remote, state);
@@ -2562,7 +2627,7 @@ h1 {
       cloudReady = true;
       first = false;
       if (needsPush) pushToCloud();
-      else if (doc.exists) { try { localStorage.removeItem(PENDING_KEY); } catch (e) {} }
+      else if (doc.exists && !cloudBlocked) { try { localStorage.removeItem(PENDING_KEY); } catch (e) {} }
       afterRemoteChange();
     }, function (err) {
       reportSyncError(err);
@@ -2631,7 +2696,12 @@ h1 {
     if (now - lastSyncErrorAt < 30000) return;
     lastSyncErrorAt = now;
     var code = err && err.code;
-    if (code === 'invalid-argument' || code === 'resource-exhausted') {
+    if (code === 'permission-denied') {
+      // Most likely this copy of the app is out of date and the rules now
+      // require a newer one. Reloading fixes that; unsent changes are merged in.
+      showUpdateNotice('Your changes are saved on this device but couldn\'t sync. Reload to get the latest version of the app.');
+      checkForUpdate(true);
+    } else if (code === 'invalid-argument' || code === 'resource-exhausted') {
       toast('Cloud vault is full — your data is still saved on this device');
     } else {
       toast('Cloud sync failed — your data is still saved on this device');
@@ -2683,9 +2753,12 @@ h1 {
         var email = ($('msEmailUpdate').value || '').trim().toLowerCase();
         if (!email) return toast('Please enter an email address');
         if (db) {
-          db.collection('vaults').doc(syncCode).set({ _email: email }, { merge: true })
+          db.collection('vaults').doc(syncCode).set(Object.assign({ _email: email }, writeStamp()), { merge: true })
             .then(function () { toast('Email saved ☁'); $('msEmailUpdate').value = ''; })
-            .catch(function () { toast('Could not save email'); });
+            .catch(function (err) {
+              if (err && err.code === 'permission-denied') return reportSyncError(err);
+              toast('Could not save email');
+            });
         }
       });
       $('msDisconnect').addEventListener('click', function () {
@@ -2722,7 +2795,7 @@ h1 {
         }
         syncCode = code;
         localStorage.setItem(SYNC_CODE_KEY, code);
-        var doc = { pets: state.pets, records: state.records, _email: email, _createdAt: new Date().toISOString() };
+        var doc = Object.assign({ pets: state.pets, records: state.records, _email: email, _createdAt: new Date().toISOString() }, writeStamp());
         db.collection('vaults').doc(code).set(doc).catch(reportSyncError);
         startSync(true); // this device's copy is the vault's starting point
         renderAuthBtn();
