@@ -9,6 +9,7 @@
 //   npm test -- --previous path/to/old.html    also test old + new side by side
 //   npm test -- --verbose                      list every check, not just failures
 //   npm test -- --quick                        desktop layout only (about twice as fast)
+//   npm test -- --only "vet summary"           run only groups whose name contains the text
 //   node run-tests.js path/to/index.html       test a different copy of the app
 //
 // The tests use made-up data from sample-data.json. Never put real users'
@@ -27,16 +28,30 @@ catch (e) { console.error('Missing library. Run "npm install" in the tests folde
 const argv = process.argv.slice(2);
 const VERBOSE = argv.includes('--verbose');
 const QUICK = argv.includes('--quick'); // desktop layout only, about twice as fast
+const onlyIdx = argv.indexOf('--only');
+const ONLY = onlyIdx >= 0 ? String(argv[onlyIdx + 1] || '').toLowerCase() : ''; // run only groups whose name contains this
 const prevIdx = argv.indexOf('--previous');
 const PREVIOUS_PATH = prevIdx >= 0 ? path.resolve(argv[prevIdx + 1]) : null;
-const appArg = argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--previous');
+const appArg = argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--previous' && argv[i - 1] !== '--only');
 const APP_PATH = path.resolve(__dirname, appArg || '../index.html');
 const ROOT = path.dirname(APP_PATH);
 const read = (p) => fs.readFileSync(p, 'utf8');
 if (!fs.existsSync(APP_PATH)) { console.error('Could not find ' + APP_PATH); process.exit(1); }
 
-const html = read(APP_PATH);
-const PREVIOUS_HTML = PREVIOUS_PATH ? read(PREVIOUS_PATH) : null;
+// The app is index.html plus styles.css and app.js next to it. The simulated
+// browser can't fetch those, so they're read from disk and put into the page.
+// (A single-file index.html, e.g. an older copy passed to --previous, works too.)
+function assemble(file) {
+  const dir = path.dirname(file);
+  const release = {};
+  const page = read(file)
+    .replace(/<link rel="stylesheet" href="styles\.css(\?v=([^"]*))?">/, (m, q, v) => { release.css = v; return '<style>' + read(path.join(dir, 'styles.css')) + '</style>'; })
+    .replace(/<script src="app\.js(\?v=([^"]*))?"><\/script>/, (m, q, v) => { release.js = v; return '<script>' + read(path.join(dir, 'app.js')) + '</script>'; });
+  return { page, release };
+}
+const APP = assemble(APP_PATH);
+const html = APP.page;
+const PREVIOUS_HTML = PREVIOUS_PATH ? assemble(PREVIOUS_PATH).page : null;
 const SAMPLE = JSON.parse(read(path.join(__dirname, 'sample-data.json'))).vaults;
 const versionOf = (h) => { const m = h.match(/var DATA_VERSION = (\d+);/); return m ? Number(m[1]) : 0; };
 const DATA_VERSION = versionOf(html);
@@ -290,6 +305,7 @@ const groups = [];
 let current = null;
 function check(name, cond, detail) { current.results.push({ name, ok: !!cond, detail }); }
 async function runGroup(name, fn) {
+  if (ONLY && !name.toLowerCase().includes(ONLY) && name !== 'Setup') return;
   current = { name, results: [] };
   groups.push(current);
   try { await fn(); }
@@ -302,6 +318,9 @@ async function runGroup(name, fn) {
 // =====================================================================
 async function setupChecks() {
   check('index.html has a DATA_VERSION', DATA_VERSION > 0, DATA_VERSION);
+  if (APP.release.css !== undefined || APP.release.js !== undefined) {
+    check('styles.css and app.js are loaded with the same ?v= release number', APP.release.css && APP.release.css === APP.release.js, APP.release);
+  }
   const vp = path.join(ROOT, 'version.json');
   const live = fs.existsSync(vp) ? Number(JSON.parse(read(vp)).version) : null;
   check('version.json exists and matches DATA_VERSION', live === DATA_VERSION, { 'version.json': live, DATA_VERSION });
@@ -322,6 +341,33 @@ async function setupChecks() {
   const themeBlocks = [...css.matchAll(/:root\[data-theme="([\w-]+)"\]\s*\{([\s\S]*?)\n\}/g)];
   const unknown = themeBlocks.flatMap(([, name, body]) => [...body.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]).filter((v) => !defined.has(v)).map((v) => name + ' ' + v));
   check('themes only override colors that exist', themeBlocks.length > 0 && unknown.length === 0, unknown);
+  // Readability: key text/background pairs reach 4.5:1 in every theme
+  const hexes = (body) => Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{6})/g)].map((m) => [m[1], m[2]]));
+  const baseColors = hexes(rootBlock);
+  const lum = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)).reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+  const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const PAIRS = [['grey text on cards', '--muted', '--card'], ['grey text on the page', '--muted', '--bg'], ['grey text on tinted boxes', '--muted', '--bg-2'],
+    ['button text on green', '--on-accent', '--sage'], ['green text on cards', '--sage', '--card'], ['chart labels', '--chart-text', '--card'], ['main text', '--ink', '--bg']];
+  const lowContrast = [];
+  [['garden', {}]].concat(themeBlocks.map(([, name, body]) => [name, hexes(body)])).forEach(([name, over]) => {
+    const c = Object.assign({}, baseColors, over);
+    PAIRS.forEach(([label, fg, bg]) => { const r = contrast(c[fg], c[bg]); if (r < 4.5) lowContrast.push(name + ': ' + label + ' ' + r.toFixed(2)); });
+  });
+  check('text is readable in every theme (4.5:1)', lowContrast.length === 0, lowContrast);
+  // Chart lines and bars stand out from the card (3:1, the guideline for graphics)
+  const CHART = ['--chart-accent', '--chart-accent-bar', '--chart-accent-soft', '--chart-avg', '--chart-vomit', '--chart-diarrhea',
+    '--chart-s1', '--chart-s2', '--chart-s3', '--chart-s4', '--chart-s5', '--chart-s6'];
+  const faintCharts = [];
+  [['garden', {}]].concat(themeBlocks.map(([, name, body]) => [name, hexes(body)])).forEach(([name, over]) => {
+    const c = Object.assign({}, baseColors, over);
+    CHART.forEach((k) => {
+      if (!c[k]) { faintCharts.push(name + ': ' + k + ' is not a solid color'); return; }
+      const r = contrast(c[k], c['--card']);
+      if (r < 3) faintCharts.push(name + ': ' + k + ' ' + r.toFixed(2));
+    });
+  });
+  check('chart lines and bars stand out in every theme (3:1)', faintCharts.length === 0, faintCharts);
   const writesStamp = /_v:\s*DATA_VERSION,\s*_w:/.test(html);
   check('rules allow the fields the app saves', !writesStamp || (RULES.fields.includes('_v') && RULES.fields.includes('_w')), RULES.fields);
 }
@@ -1304,6 +1350,385 @@ async function bulkImport() {
 }
 
 // =====================================================================
+// VERSION 4: stool (was diarrhea), vomit/stool labels, vet visit type
+// =====================================================================
+async function stoolVomitVet() {
+  // Old diarrhea logs convert to Stool: Diarrhea (old format and version 3 format)
+  const data = vault(CODE);
+  data.records.push({ id: 'v3d', v: 3, petId: 'p-pepper', date: '2026-09-15', weight: '', mood: '', activity: '', cost: '', food: 'Kibble',
+    meds: [], tags: ['diarrhea'], note: 'v3 diarrhea', symptoms: [], playSize: '', playKinds: [] });
+  resetServer({ [CODE]: data });
+  let A = openApp(makeClient('a'), linked(CODE, data));
+  await settle();
+  A.addLog('trigger a save'); await settle();
+  const cloud = server.docs[CODE].records;
+  const oldMiso = cloud.find((r) => r.petId === 'p-miso' && r.note === 'Started after switching brands');
+  check('old-format diarrhea log becomes Stool: Diarrhea', oldMiso && oldMiso.tags.includes('stool') && !oldMiso.tags.includes('diarrhea') && (oldMiso.stoolKinds || []).includes('Diarrhea'), oldMiso);
+  check('...and keeps its food', oldMiso && oldMiso.food === 'New kibble');
+  const v3 = cloud.find((r) => r.id === 'v3d');
+  check('version 3 diarrhea log becomes Stool: Diarrhea', v3 && v3.tags.includes('stool') && !v3.tags.includes('diarrhea') && v3.stoolKinds.includes('Diarrhea') && v3.food === 'Kibble', v3);
+  A.$('chartRange').value = 'all';
+  const dw = A.chart('diarrhea-weekly');
+  check('diarrhea chart still counts converted logs', dw.data.datasets[0].data.reduce((a, b) => a + b, 0) === 1);
+  A.close();
+
+  // Quick options in the form
+  resetServer({ [CODE]: vault(CODE) });
+  A = openApp(makeClient('b'), linked(CODE, vault(CODE)));
+  await settle();
+  const d = A.d;
+  const tag = (t) => d.querySelector('#rTags [data-tag="' + t + '"]');
+  const chip = (kind, name) => d.querySelector('#labelPanel [data-label-kind="' + kind + '"][data-label="' + name + '"]');
+  const latest = () => A.state().records.filter((r) => r.date === TODAY).pop();
+  check('the Diarrhea chip is now Stool', !tag('diarrhea') && tag('stool') && tag('stool').textContent === 'Stool');
+  tag('stool').click();
+  const stoolChips = [...d.querySelectorAll('#labelPanel [data-label-kind="stool"]')].map((b) => b.getAttribute('data-label'));
+  check('stool offers its fixed options', ['Normal', 'Soft', 'Diarrhea', 'Hard', 'Blood', 'Mucus'].every((x) => stoolChips.includes(x)), stoolChips);
+  chip('stool', 'Soft').click(); chip('stool', 'Mucus').click();
+  A.type(d.querySelector('#labelPanel [data-new-label="stool"]'), 'Grass in it');
+  A.pressEnter(d.querySelector('#labelPanel [data-new-label="stool"]')); await settle();
+  tag('vomit').click();
+  const vomitChips = [...d.querySelectorAll('#labelPanel [data-label-kind="vomit"]')].map((b) => b.getAttribute('data-label'));
+  check('vomit offers its fixed options', ['Hairball', 'Food', 'Bile/foam', 'Liquid'].every((x) => vomitChips.includes(x)), vomitChips);
+  chip('vomit', 'Hairball').click();
+  tag('vet').click();
+  check('vet visit offers three types', d.querySelectorAll('#labelPanel [data-vettype]').length === 3);
+  d.querySelector('#labelPanel [data-vettype="emergency"]').click();
+  A.addLog('rough night'); await settle();
+  let r = latest();
+  check('stool labels saved (fixed and custom)', r && JSON.stringify(r.stoolKinds) === JSON.stringify(['Soft', 'Mucus', 'Grass in it']), r && r.stoolKinds);
+  check('vomit label saved', r && JSON.stringify(r.vomitKinds) === JSON.stringify(['Hairball']));
+  check('vet visit type saved', r && r.vetType === 'emergency' && r.tags.includes('vet'));
+  const pet = A.state().pets.find((p) => p.id === 'p-pepper');
+  check('only the custom label is added to the pet\'s list', JSON.stringify(pet.stoolLabels) === JSON.stringify(['Grass in it']), pet.stoolLabels);
+  const card = d.querySelector('.record[data-id="' + r.id + '"]').textContent;
+  check('the log card shows them', card.includes('Soft') && card.includes('Hairball') && card.includes('Emergency visit') && card.includes('Stool'));
+  A.editLog(r.id);
+  check('editing restores the labels and visit type', chip('stool', 'Mucus').getAttribute('aria-pressed') === 'true' && d.querySelector('#labelPanel [data-vettype="emergency"]').getAttribute('aria-pressed') === 'true');
+  A.click('clearForm');
+  tag('stool').click();
+  d.querySelector('#labelPanel [data-edit-labels="stool"]').click();
+  chip('stool', 'Soft').click(); await settle(); // fixed option: toggles, can't be removed
+  check('fixed options can\'t be removed', !!chip('stool', 'Soft') && chip('stool', 'Soft').getAttribute('aria-pressed') === 'true');
+  chip('stool', 'Grass in it').click(); await settle();
+  check('custom labels can be removed', !(A.state().pets.find((p) => p.id === 'p-pepper').stoolLabels || []).includes('Grass in it'));
+  A.click('clearForm');
+  const cw = A.chart('stool-weekly');
+  check('Stool (weekly) chart stacks by label', cw && cw.data.datasets.some((ds) => ds.label === 'Soft'), cw && cw.data.datasets.map((x) => x.label));
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+}
+
+// =====================================================================
+// ADD TO LAST LOG
+// =====================================================================
+async function addToLastLog() {
+  resetServer({ [CODE]: vault(CODE) });
+  const A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
+  await settle();
+  const count = () => A.state().records.length;
+  check('no log today: button off, hint explains', A.$('appendBtn').disabled && /No log for Pepper today yet/.test(A.$('appendHint').textContent), A.$('appendHint').textContent);
+  A.$('rWeight').value = '11'; A.$('rWeightOz').value = '0';
+  A.addLog('morning'); await settle();
+  const before = count();
+  const target = A.state().records.find((r) => r.note === 'morning');
+  check('after a log: button on, hint names it', !A.$('appendBtn').disabled && /last log for today \(Weight\)/.test(A.$('appendHint').textContent), A.$('appendHint').textContent);
+  A.$('rNote').value = 'evening';
+  A.addFormMed('Famotidine', '1/4 pill');
+  A.d.querySelector('#rTags [data-tag="symptom"]').click();
+  A.click('appendBtn'); await settle();
+  let t = A.state().records.find((r) => r.id === target.id);
+  check('adds to the log instead of creating one', count() === before);
+  check('notes combined on separate lines', t.note === 'morning\nevening', t.note);
+  check('medicine and tag added', t.meds.some((m) => m.name === 'Famotidine' && m.note === '1/4 pill') && t.tags.includes('symptom'));
+  check('the weight is kept', t.weight === 11);
+  check('the form clears afterwards', A.$('rNote').value === '' && A.d.querySelectorAll('#medRows .med-row').length === 0);
+  check('it syncs', server.docs[CODE].records.find((r) => r.id === target.id).note === 'morning\nevening');
+  // A different weight asks first
+  let asked = '';
+  A.w.confirm = (msg) => { asked = msg; return false; };
+  A.$('rWeight').value = '11'; A.$('rWeightOz').value = '4';
+  A.click('appendBtn'); await settle();
+  t = A.state().records.find((r) => r.id === target.id);
+  check('replacing a value asks first', /Weight: 11 lb → 11 lb 4 oz/.test(asked), asked);
+  check('saying no changes nothing', t.weight === 11);
+  A.w.confirm = () => true;
+  A.click('appendBtn'); await settle();
+  t = A.state().records.find((r) => r.id === target.id);
+  check('saying yes replaces it', t.weight === 11.25);
+  // Another date, and editing
+  A.$('rDate').value = '2026-09-20'; A.$('rDate').dispatchEvent(new A.w.Event('change'));
+  check('the hint follows the chosen date', /Sep 20, 2026/.test(A.$('appendHint').textContent), A.$('appendHint').textContent);
+  A.click('clearForm');
+  A.editLog(target.id);
+  check('hidden while editing a log', A.$('appendBtn').hidden && A.$('appendHint').hidden);
+  A.click('clearForm');
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+}
+
+// =====================================================================
+// FOOD & MOOD in the daily routine
+// =====================================================================
+async function foodMoodRoutine() {
+  resetServer({ [CODE]: vault(CODE) });
+  const A = openApp(makeClient('phone'), linked(CODE, vault(CODE)));
+  const B = openApp(makeClient('laptop'), linked(CODE, vault(CODE)));
+  await settle();
+  const pepper = () => A.state().pets.find((p) => p.id === 'p-pepper');
+  A.$('rFood').value = 'Science Diet';
+  A.click('starFood'); A.click('starMood'); await settle();
+  const food = (pepper().routine || []).find((it) => it.kind === 'food');
+  check('★ on Food adds it with what\'s typed as the default', food && food.note === 'Science Diet', pepper().routine);
+  check('★ on Mood adds it', (pepper().routine || []).some((it) => it.kind === 'mood'));
+  check('stars show as on', A.$('starFood').getAttribute('aria-pressed') === 'true' && A.$('starMood').getAttribute('aria-pressed') === 'true');
+  check('the routine syncs', (B.state().pets.find((p) => p.id === 'p-pepper').routine || []).length === 2);
+  A.click('clearForm');
+  check('checklist shows Food and Mood', !!A.row('Food') && !!A.row('Mood'));
+  check('food shows its default, ready to edit', A.row('Food').note && A.row('Food').note.value === 'Science Diet');
+  check('mood has 1–5 buttons', A.row('Mood').el.querySelectorAll('[data-mood]').length === 5);
+  A.row('Mood').el.querySelector('[data-mood="4"]').click(); await settle();
+  let logs = todays(A.state().records, 'p-pepper').filter((r) => r.routine);
+  check('one tap logs mood', logs.length === 1 && logs[0].mood === 4);
+  check('mood shows as done', A.row('Mood').done && /Mood 4\/5/.test(A.row('Mood').status.textContent), A.row('Mood').status.textContent);
+  A.type(A.row('Food').note, 'Science Diet, 1/3 cup');
+  check('"Make default" appears for an edited food', !A.row('Food').makeDefault.hidden);
+  A.row('Food').log.click(); await settle();
+  logs = todays(A.state().records, 'p-pepper').filter((r) => r.routine);
+  check('food goes into the same routine log', logs.length === 1 && logs[0].food === 'Science Diet, 1/3 cup' && logs[0].mood === 4, logs);
+  check('...without changing the default', pepper().routine.find((it) => it.kind === 'food').note === 'Science Diet');
+  check('the other device sees it', todays(B.state().records, 'p-pepper').some((r) => r.food === 'Science Diet, 1/3 cup'));
+  A.row('Mood').undo.click(); await settle();
+  logs = todays(A.state().records, 'p-pepper').filter((r) => r.routine);
+  check('Undo clears the mood only', logs[0].mood === '' && logs[0].food === 'Science Diet, 1/3 cup');
+  const meds = [...A.d.querySelectorAll('#medOptions option')].map((o) => o.value);
+  check('medicine suggestions don\'t list food or mood items', !meds.includes('undefined') && !meds.includes(''), meds.slice(0, 5));
+  let asked = '';
+  A.w.confirm = (msg) => { asked = msg; return false; };
+  A.row('Food').stop.click();
+  check('"stop daily" asks, naming daily food', /daily food/.test(asked), asked);
+  check('no script errors', A.log.errors.length === 0 && B.log.errors.length === 0, A.log.errors.concat(B.log.errors));
+  A.close(); B.close();
+}
+
+// =====================================================================
+// VET SUMMARY (version 4): frequency, food, mood, breakdowns, chart marks
+// =====================================================================
+async function vetSummaryV4() {
+  const data = withRoutine(vault(CODE), ROUTINE);
+  const add = (date, extra) => data.records.push(Object.assign({ id: 'x' + data.records.length, v: DATA_VERSION, petId: 'p-pepper', date,
+    weight: '', mood: '', activity: '', cost: '', food: '', meds: [], tags: [], note: '', symptoms: [], playSize: '', playKinds: [],
+    vomitKinds: [], stoolKinds: [], vetType: '' }, extra));
+  ['2026-08-28', '2026-09-04', '2026-09-11', '2026-09-18'].forEach((dt) => add(dt, { meds: [{ name: 'FortiFlora', note: 'Whole packet' }] }));
+  add('2026-09-01', { meds: [{ name: 'Cerenia', note: '' }] });
+  add('2026-09-10', { food: 'Science Diet', mood: 4 });
+  add('2026-09-17', { food: 'Bland diet', mood: 2 });
+  add('2026-09-12', { tags: ['stool'], stoolKinds: ['Soft'] });
+  add('2026-09-13', { tags: ['stool'], stoolKinds: ['Diarrhea', 'Mucus'] });
+  add('2026-09-14', { tags: ['vomit'], vomitKinds: ['Hairball'] });
+  add('2026-09-15', { tags: ['vet'], vetType: 'emergency', note: 'Fluids' });
+  resetServer({ [CODE]: data });
+  const A = openApp(makeClient('a'), linked(CODE, data));
+  await settle();
+  A.click('vetSummaryBtn'); A.$('vsPeriod').value = '90'; A.click('vsCreate');
+  const rep = () => A.$('vetReport');
+  const text = () => rep().textContent;
+  const medRow = (name) => [...rep().querySelectorAll('tr')].find((tr) => tr.querySelector('b') && tr.querySelector('b').textContent === name);
+  check('daily medicine: days and weekly average', /89 of 89 days/.test(medRow('Famotidine').textContent) && /About 7 times a week/.test(medRow('Famotidine').textContent), medRow('Famotidine').textContent);
+  check('weekly medicine: about once a week, no missed days', /4 of 27 days/.test(medRow('FortiFlora').textContent) && /About once a week/.test(medRow('FortiFlora').textContent) && !/[Mm]issed/.test(medRow('FortiFlora').textContent), medRow('FortiFlora').textContent);
+  check('occasional medicine: less than once a week', /Less than once a week/.test(medRow('Cerenia').textContent), medRow('Cerenia').textContent);
+  const foodRows = [...rep().querySelectorAll('section')].find((s) => s.querySelector('h2').textContent === 'Food');
+  check('food section lists each food in order', foodRows && /Science Diet/.test(foodRows.textContent) && foodRows.textContent.indexOf('Science Diet') < foodRows.textContent.indexOf('Bland diet') && /change of food/.test(foodRows.textContent));
+  const moods = data.records.filter((r) => r.petId === 'p-pepper' && r.date >= '2026-06-27' && r.mood !== '' && r.mood != null).map((r) => Number(r.mood));
+  const avg = Number((moods.reduce((a, b) => a + b, 0) / moods.length).toFixed(1)).toString();
+  check('mood: average and lowest', new RegExp('Average ' + avg.replace('.', '\\.') + ' of 5 over ' + moods.length + ' ratings').test(text()) && /Lowest 2 \(Sep 17\)/.test(text()), [avg, moods.length]);
+  const vomits = data.records.filter((r) => r.petId === 'p-pepper' && r.date >= '2026-06-27' && (r.type === 'vomit' || (r.tags || []).includes('vomit'))).length;
+  check('vomiting with label breakdown', text().includes('Vomiting: ' + vomits + ' (Hairball 1)'), vomits);
+  check('stool with label breakdown', text().includes('Stool logs: 2 (Diarrhea 1 · Mucus 1 · Soft 1)'));
+  check('vet visits line', /Vet visits in this period: 1 \(Emergency 1\)/.test(text()));
+  // Chart marks: off by default, opt-in with checkboxes
+  const boxes = () => [...rep().querySelectorAll('[data-mark]')];
+  check('marks offered, all off by default', boxes().length === 5 && boxes().every((b) => !b.checked), boxes().map((b) => b.getAttribute('data-mark')));
+  check('no marks on the chart by default', rep().querySelectorAll('.vr-chart title').length === 0);
+  const tick = (k) => { const b = rep().querySelector('[data-mark="' + k + '"]'); b.checked = true; b.dispatchEvent(new A.w.Event('change')); };
+  tick('medicine'); tick('food');
+  const titles = [...rep().querySelectorAll('.vr-chart title')].map((x) => x.textContent);
+  check('medicine changes marked', titles.some((x) => /FortiFlora started/.test(x)) && titles.some((x) => /Cerenia started/.test(x)), titles);
+  check('food changes marked', titles.some((x) => /Changed to Bland diet/.test(x)), titles);
+  check('choices remembered', JSON.parse(A.storage()['petHealth.vetMarks']).medicine === true);
+  tick('diarrhea');
+  check('diarrhea marked', [...rep().querySelectorAll('.vr-chart text')].some((x) => x.textContent === 'Diarrhea'));
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+}
+
+// =====================================================================
+// CSV IMPORT (version 4 columns)
+// =====================================================================
+async function importV4() {
+  resetServer({ [CODE]: vault(CODE) });
+  const A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
+  await settle();
+  const csv = ['pet,date,tags,vomit,stool,vet type,note',
+    'Pepper,2026-09-20,diarrhea,,,,old word',
+    'Pepper,2026-09-21,,Hairball,,,labels imply the tag',
+    'Pepper,2026-09-22,,,Soft; Mucus,,',
+    'Pepper,2026-09-23,,,,emergency,visit',
+    'Pepper,2026-09-23,,,,urgent,bad type'].join('\n');
+  const input = A.$('csvInput');
+  Object.defineProperty(input, 'files', { value: [new A.w.File([csv], 'i.csv', { type: 'text/csv' })], configurable: true });
+  input.dispatchEvent(new A.w.Event('change'));
+  await settle(); await new Promise((r) => setTimeout(r, 30)); await settle();
+  check('bad vet type reported', /Vet type "urgent"/.test(A.$('modalBody').textContent));
+  A.click('impAdd'); await settle();
+  const f = (note) => A.state().records.find((r) => r.note === note);
+  check('"diarrhea" imports as Stool: Diarrhea', f('old word') && f('old word').tags.includes('stool') && f('old word').stoolKinds.includes('Diarrhea'));
+  check('vomit labels imply the Vomit tag', f('labels imply the tag') && f('labels imply the tag').tags.includes('vomit') && f('labels imply the tag').vomitKinds[0] === 'Hairball');
+  const stool = A.state().records.find((r) => r.date === '2026-09-22' && (r.stoolKinds || []).length);
+  check('stool labels imply the Stool tag', stool && stool.tags.includes('stool') && stool.stoolKinds.join() === 'Soft,Mucus');
+  check('vet type imports and implies the Vet tag', f('visit') && f('visit').vetType === 'emergency' && f('visit').tags.includes('vet'));
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+}
+
+// =====================================================================
+// STORAGE: compact cloud saves, storage meter, near-full warning
+// =====================================================================
+async function storage() {
+  resetServer({ [CODE]: vault(CODE) });
+  let A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
+  await settle();
+  A.addLog('compact save'); await settle();
+  const cloud = server.docs[CODE].records;
+  const emptyLeft = cloud.filter((r) => Object.entries(r).some(([k, v]) => !['id', 'petId', 'date', 'v', 'tags'].includes(k) &&
+    (v === '' || v === null || v === false || (Array.isArray(v) && !v.length))));
+  check('cloud logs are saved without empty fields', emptyLeft.length === 0, emptyLeft.slice(0, 2));
+  check('...but always keep id, pet, date, version and tags', cloud.every((r) => r.id && r.petId && r.date && r.v && Array.isArray(r.tags)));
+  check('this device keeps complete logs', A.state().records.every((r) => 'note' in r && 'weight' in r && Array.isArray(r.meds)));
+  const B = openApp(makeClient('b'), linked(CODE, { pets: [], records: [] }));
+  await settle();
+  const byId = (recs) => JSON.stringify(recs.slice().sort((x, y) => x.id.localeCompare(y.id)));
+  check('another device loads them back identically', byId(B.state().records) === byId(A.state().records));
+  B.close();
+  A.click('authBtn');
+  const meter = A.d.querySelector('.storage-meter');
+  check('sync window shows the storage meter', meter && /Cloud storage/.test(meter.textContent) && /% used/.test(meter.textContent) && /of 5,000 logs/.test(meter.textContent), meter && meter.textContent);
+  A.click('modalClose');
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+
+  // Near full (by log count): one warning per session after a save
+  const big = vault(CODE);
+  for (let i = big.records.length; i < 4100; i++) big.records.push({ id: 'f' + i, petId: 'p-pepper', date: '2026-01-01', tags: ['symptom'], v: DATA_VERSION });
+  resetServer({ [CODE]: big });
+  A = openApp(makeClient('c'), linked(CODE, big));
+  await settle();
+  A.addLog('one more'); await settle();
+  check('near-full warning after a save', A.log.toasts.some((t) => /Cloud storage is 8\d% full/.test(t)), A.log.toasts);
+  const warnings = () => A.log.toasts.filter((t) => /Cloud storage is/.test(t)).length;
+  const n = warnings();
+  A.addLog('and another'); await settle();
+  check('...only once per session', warnings() === n);
+  A.click('authBtn');
+  check('the meter shows it getting full', A.d.querySelector('.storage-meter.full') && /Getting full/.test(A.d.querySelector('.storage-meter').textContent));
+  A.close();
+}
+
+// =====================================================================
+// CUSTOM MEASURES (version 5): setup, routine, form, chart, summary, spreadsheet
+// =====================================================================
+async function customMeasures() {
+  resetServer({ [CODE]: vault(CODE) });
+  const A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
+  await settle();
+  const d = A.d;
+  const pet = () => A.state().pets.find((p) => p.id === 'p-pepper');
+  A.click('addMeasureBtn');
+  A.$('meName').value = 'Blood glucose'; A.$('meUnit').value = 'mg/dL'; A.$('meLow').value = '80'; A.$('meHigh').value = '200';
+  A.click('meSave'); await settle();
+  A.click('addMeasureBtn');
+  A.$('meName').value = 'Ketones'; A.$('meType').value = 'levels'; A.$('meType').dispatchEvent(new A.w.Event('change'));
+  A.$('meLevelList').value = 'Negative\nTrace\nSmall\nModerate\nLarge';
+  A.click('meSave'); await settle();
+  const ms = pet().measures || [];
+  check('measures created: a number with a normal range, and levels', ms.length === 2 && ms[0].id === 'm1' && ms[0].low === 80 && ms[0].high === 200 && ms[1].type === 'levels' && ms[1].levels.length === 5, ms);
+  check('measures sync', (server.docs[CODE].pets[0].measures || []).length === 2);
+  check('the form has a field per measure', d.querySelectorAll('#measureRows [data-measure]').length === 2);
+
+  // Routine: a glucose curve from the checklist
+  d.querySelector('[data-measure-star="m1"]').click(); await settle();
+  const row = () => A.row('Blood glucose');
+  const logOne = async (v) => { const el = row().el.querySelector('[data-mval]'); el.value = v; row().el.querySelector('[data-mlog]').click(); await settle(); };
+  await logOne('142'); await logOne('260');
+  const rds = todays(A.state().records, 'p-pepper').flatMap((r) => r.readings || []);
+  check('several readings a day, each with a time', rds.length === 2 && rds.every((x) => x.m === 'm1' && /^\d\d:\d\d$/.test(x.t)), rds);
+  check('...kept in one daily log', todays(A.state().records, 'p-pepper').filter((r) => (r.readings || []).length).length === 1);
+  check('checklist shows the latest and how many today', /Latest 260 mg\/dL/.test(row().status.textContent) && /2 today/.test(row().status.textContent));
+  check('a reading above the normal range is flagged', A.log.toasts.some((t) => /260 mg\/dL logged \(high\)/.test(t)));
+  row().el.querySelector('[data-mundo]').click(); await settle();
+  check('Undo removes only the latest reading', todays(A.state().records, 'p-pepper').flatMap((r) => r.readings || []).map((x) => x.v).join() === '142');
+  await logOne('180');
+
+  // Form: readings with a chosen time
+  A.$('rDate').value = '2026-09-20'; A.$('rTime').value = '07:30';
+  d.querySelector('#measureRows [data-measure="m2"]').value = 'Trace';
+  d.querySelector('#measureRows [data-measure="m1"]').value = '95';
+  A.addLog('morning check'); await settle();
+  const f = A.state().records.find((r) => r.note === 'morning check');
+  check('the form saves readings with the chosen time', f && f.readings.length === 2 && f.readings.every((x) => x.t === '07:30'), f && f.readings);
+  check('log cards show readings', /Blood glucose 95 mg\/dL · 7:30/.test(d.querySelector('.record[data-id="' + f.id + '"]').textContent));
+  const multi = todays(A.state().records, 'p-pepper').find((r) => (r.readings || []).length === 2);
+  A.editLog(multi.id);
+  d.querySelector('#measureRows [data-measure="m1"]').value = '150';
+  A.submit(); await settle();
+  const after = A.state().records.find((r) => r.id === multi.id);
+  check('editing keeps readings the form doesn\'t show', after && after.readings.map((x) => x.v).sort().join() === '150,180', after && after.readings);
+
+  // Chart
+  A.$('chartRange').value = '30';
+  check('measures appear in the chart menu', [...A.$('chartMode').options].some((o) => o.value === 'measure:m1' && o.textContent === 'Blood glucose (mg/dL)'));
+  const cfg = A.chart('measure:m1');
+  check('points placed by date and time of day', cfg.data.datasets[0].data.every((p) => p.x % 1 !== 0));
+  check('normal range shaded', cfg.data.datasets.filter((x) => x.isRange).length === 2);
+  check('levels chart labels its rows', A.chart('measure:m2').options.scales.y.ticks.callback(1) === 'Trace');
+
+  // Vet summary: opt-in per measure
+  A.click('vetSummaryBtn'); A.$('vsPeriod').value = '30'; A.click('vsCreate');
+  const boxes = [...d.querySelectorAll('[data-include]')];
+  check('summary offers each measure, off by default', boxes.length === 2 && boxes.every((b) => !b.checked) && !/Measurements/.test(d.querySelector('.vr-page').textContent));
+  boxes.forEach((b) => { b.checked = true; b.dispatchEvent(new A.w.Event('change')); });
+  const sec = d.querySelector('.vr-page').textContent;
+  check('summary shows readings, average and range', /3 readings/.test(sec) && /average 141\.67 mg\/dL/.test(sec) && /lowest 95, highest 180/.test(sec) && /normal 80–200/.test(sec));
+  check('summary counts levels', /Negative 0 · Trace 1 · Small 0/.test(sec));
+  A.click('vrClose');
+
+  // Spreadsheet
+  A.downloads = []; A.w.URL.createObjectURL = (b) => { A.downloads.push(b); return 'blob:x'; }; A.w.URL.revokeObjectURL = () => {}; A.w.HTMLAnchorElement.prototype.click = function () {};
+  A.click('exportCsvBtn'); await settle();
+  const csv = await new Promise((res) => { const fr = new A.w.FileReader(); fr.onload = () => res(fr.result); fr.readAsText(A.downloads[0]); });
+  check('export has a readings column', /Blood glucose=95 @07:30; Ketones=Trace @07:30/.test(csv));
+  const input = A.$('csvInput');
+  const imp = async (text) => { Object.defineProperty(input, 'files', { value: [new A.w.File([text], 'i.csv', { type: 'text/csv' })], configurable: true }); input.dispatchEvent(new A.w.Event('change')); await settle(); await new Promise((r) => setTimeout(r, 30)); await settle(); };
+  await imp(csv);
+  check('re-importing the export adds nothing', /Nothing new to add/.test(A.$('modalBody').textContent));
+  A.click('impCancel');
+  await imp('pet,date,readings\nPepper,2026-09-21,Blood glucose=120 @09:15; Ketones=small\nPepper,2026-09-21,Weight=5\nPepper,2026-09-21,Ketones=huge');
+  const pv = A.$('modalBody').textContent;
+  check('import checks the measure and its values', /1 new log to add/.test(pv) && /no measure called "Weight"/.test(pv) && /"huge" isn't one of its levels/.test(pv), pv);
+  A.click('impAdd'); await settle();
+  const imported = A.state().records.find((r) => r.date === '2026-09-21' && (r.readings || []).length);
+  check('imported readings stored, level spelled as defined', imported && imported.readings.find((x) => x.m === 'm2').v === 'Small' && imported.readings.find((x) => x.m === 'm1').t === '09:15');
+
+  // Another device loads them
+  const B = openApp(makeClient('b'), linked(CODE, { pets: [], records: [] }));
+  await settle();
+  check('another device loads measures and readings', (B.state().pets.find((p) => p.id === 'p-pepper').measures || []).length === 2 && B.state().records.some((r) => (r.readings || []).length));
+  B.close();
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+}
+
+// =====================================================================
 // PREVIOUS VERSION (optional): old and new copies of the app together
 // =====================================================================
 async function previousVersion() {
@@ -1376,6 +1801,13 @@ async function previousVersion() {
     await runGroup('Labels & play' + tag, labelsAndPlay);
     await runGroup('Weight units' + tag, weightUnits);
     await runGroup('Bulk import' + tag, bulkImport);
+    await runGroup('Stool, vomit & vet type' + tag, stoolVomitVet);
+    await runGroup('Add to last log' + tag, addToLastLog);
+    await runGroup('Food & mood routine' + tag, foodMoodRoutine);
+    await runGroup('Vet summary v4' + tag, vetSummaryV4);
+    await runGroup('Import v4 columns' + tag, importV4);
+    await runGroup('Storage' + tag, storage);
+    await runGroup('Custom measures' + tag, customMeasures);
     if (PREVIOUS_HTML) await runGroup('Previous version' + tag, previousVersion);
   }
   let pass = 0, total = 0;

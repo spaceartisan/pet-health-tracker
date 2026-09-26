@@ -103,11 +103,26 @@ These rules:
 
 If you add a new top-level field to the saved data, add it to the `hasOnly([...])` list or cloud saves will be rejected.
 
+## Files
+
+| File | What it is |
+|---|---|
+| `index.html` | The page's markup, plus a tiny inline script that applies the saved color theme before the page draws |
+| `styles.css` | All styles, including the Garden, Night and Ocean themes |
+| `app.js` | All app code |
+| `version.json` | The live data version, checked by the app to offer updates |
+| `firestore.rules` | A copy of the Firebase security rules (keep it matching the console) |
+| `tests/` | Automated tests; see `tests/README.md` |
+
+**Start-up code goes in `init()`**, at the end of `app.js`. It's called on the last line, after every setting and function above it has been defined. Don't add loose statements that run code elsewhere in the file: running code before a setting further down had its value caused several bugs.
+
 ## Releasing updates
 
 Every save carries the app's version (`_v`) and a new write stamp (`_w`). The rules refuse saves below `minVersion()`. A refused copy of the app keeps its changes on the device and shows a banner with a **Reload** button; after reloading, its unsent changes are merged in. The app also checks `version.json` when it's opened and when it comes back to the screen, and offers the update if a newer version is live.
 
-**Most updates** (fixes, new features that don't change saved data): just push. Nothing else to change.
+**Every update:** in `index.html`, bump the `?v=` number on both `styles.css?v=…` and `app.js?v=…` (e.g. `5.0` → `5.1`). Browsers then fetch the new files together instead of mixing a new page with an old cached script. The tests check the two numbers match.
+
+**Most updates** (fixes, new features that don't change saved data): bump `?v=`, run the tests, push. Nothing else to change.
 
 **Updates that older copies must not save alongside** (e.g. a change to how logs are stored):
 
