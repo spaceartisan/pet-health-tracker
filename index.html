@@ -1003,6 +1003,28 @@ h1 {
 .mood-btn:hover { background: var(--sage); color: var(--on-accent); }
 @media (max-width: 420px) { .mood-btn { min-width: 30px; min-height: 30px; } }
 
+/* ============ CUSTOM MEASURES ============ */
+.measure-tools { display: flex; align-items: center; gap: 8px; }
+.measure-time { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.measure-time input { width: auto; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+.measure-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto auto; gap: 6px; align-items: center; margin-top: 6px; }
+.measure-row .m-name { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.measure-row .m-name small { color: var(--muted); font-weight: 400; }
+.measure-row input, .measure-row select { min-height: 38px; padding: 6px 10px; }
+.measure-row .star, .measure-row .m-edit { min-height: 32px; }
+.measure-empty { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.type-pill.measure { background: var(--bg-2); color: var(--ink-2); }
+.levels-input { min-height: 90px; }
+.routine-actions .m-val { width: 92px; }
+
+/* ============ STORAGE METER ============ */
+.storage-meter { margin: 0 0 14px; padding: 12px; border-radius: var(--radius-sm); background: var(--bg); }
+.storage-head { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); margin-bottom: 6px; }
+.storage-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.storage-bar i { display: block; height: 100%; background: var(--sage); border-radius: 999px; }
+.storage-meter.full .storage-bar i { background: var(--danger); }
+.storage-detail { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
 /* ============ ADD TO LAST LOG ============ */
 #recordForm .form-actions { grid-template-columns: 1fr 1fr auto; }
 .append-hint { font-size: 12px; color: var(--muted); margin: 0; }
@@ -1173,6 +1195,7 @@ body.vr-open { overflow: hidden; }
 .vr-muted { color: #555; }
 .vr-scroll { overflow-x: auto; }
 .vr-chart { display: block; width: 100%; height: auto; margin-top: 10px; font-family: var(--sans); font-size: 11px; fill: #555; }
+.vr-page h3.vr-sub { font-size: 13px; margin: 14px 0 2px; }
 .vr-foot { margin-top: 28px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 11px; color: #555; }
 @media (max-width: 720px) { .vr-page { margin: 0 0 40px; padding: 20px 16px; box-shadow: none; } }
 @media print {
@@ -1333,6 +1356,12 @@ body.vr-open { overflow: hidden; }
                 <div class="med-head"><span class="small-label" style="margin:0">Medicines</span><button type="button" class="ghost tiny" id="addMedRow">＋ Medicine</button></div>
                 <div class="med-rows" id="medRows"></div>
               </div>
+              <div class="med-section measure-section">
+                <div class="med-head"><span class="small-label" style="margin:0">Measurements</span>
+                  <span class="measure-tools"><label class="measure-time">Time <input type="time" id="rTime" aria-label="Time of the readings"></label>
+                  <button type="button" class="ghost tiny" id="addMeasureBtn">＋ Measure</button></span></div>
+                <div id="measureRows"></div>
+              </div>
               <label class="field">Note<textarea id="rNote" placeholder="Symptoms, appetite, behavior, vet instructions…"></textarea></label>
               <datalist id="medOptions"></datalist>
               <datalist id="foodOptions"></datalist>
@@ -1443,11 +1472,12 @@ body.vr-open { overflow: hidden; }
   //   2. Push, and wait until the new version is live on GitHub Pages.
   //   3. Bump minVersion() in the Firestore rules to match, then Publish.
   // Updates that don't need this can be pushed without changing any of them.
-  var DATA_VERSION = 4; // 3: symptom/play labels and play size. 4: Diarrhea became Stool; vomit/stool labels; vet visit type
+  var DATA_VERSION = 5; // 3: symptom/play labels, play size. 4: Stool; vomit/stool labels; vet visit type. 5: custom measures (readings)
   var newerDataSeen = false;
   var updateNotice = '';   // message for the reload banner, if any
   var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
   var lastUpdateCheck = 0; // when version.json was last checked
+  var warnedFull = false;  // "cloud storage nearly full" shown this session
   // Quick labels and play size (used further down; defined here because startup reads them)
   var PLAY_SIZES = { tiny: 'Tiny', short: 'Short', decent: 'Decent', big: 'Big' };
   var LABEL_STARTERS = {
@@ -1467,6 +1497,8 @@ body.vr-open { overflow: hidden; }
   var VET_TYPES = { scheduled: 'Scheduled', unscheduled: 'Unscheduled', emergency: 'Emergency' };
   // Routine items there's one of per pet (medicines can be several). Read while loading saved data.
   var ROUTINE_SINGLES = { weight: 'Weigh-in', food: 'Food', mood: 'Mood' };
+  var MEASURE_LIMIT = 10;        // custom measures per pet
+  var editingKeepReadings = [];  // readings on the log being edited that the form doesn't show
   var formLabels = { symptom: [], vomit: [], stool: [], play: [] };
   var formPlaySize = '';
   var formVetType = '';
@@ -1514,6 +1546,7 @@ body.vr-open { overflow: hidden; }
   $('recordForm').addEventListener('submit', handleRecordSubmit);
   $('clearForm').addEventListener('click', clearRecordForm);
   $('appendBtn').addEventListener('click', appendToLastLog);
+  $('addMeasureBtn').addEventListener('click', function () { openMeasureEditor(null); });
   $('rDate').addEventListener('change', renderAppendHint);
   $('addMedRow').addEventListener('click', function () { addMedRow('', '').querySelector('.med-name').focus(); });
   $('starWeight').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'weight' }); });
@@ -1608,6 +1641,7 @@ body.vr-open { overflow: hidden; }
   function render() {
     renderUpdateBanner();
     renderLabelPanel();
+    renderMeasureRows();
     renderAppendHint();
     renderPets();
     renderSummary();
@@ -1615,7 +1649,23 @@ body.vr-open { overflow: hidden; }
     refreshSuggestions();
     renderStars();
     renderRecords();
+    refreshChartOptions();
     renderChart();
+  }
+  // Add the active pet's measures to the chart menu (and drop another pet's)
+  function refreshChartOptions() {
+    var sel = $('chartMode');
+    var current = sel.value;
+    sel.querySelectorAll('option[data-measure-opt]').forEach(function (o) { o.remove(); });
+    petMeasures(activePet()).forEach(function (ms) {
+      var o = document.createElement('option');
+      o.value = 'measure:' + ms.id;
+      o.textContent = ms.name + (ms.unit ? ' (' + ms.unit + ')' : '');
+      o.setAttribute('data-measure-opt', '1');
+      sel.appendChild(o);
+    });
+    sel.value = current;
+    if (sel.value !== current) sel.value = 'weight'; // that measure isn't on this pet
   }
 
   function renderPets() {
@@ -1727,6 +1777,13 @@ body.vr-open { overflow: hidden; }
       (r.vomitKinds || []).forEach(function (k) { bits.push(esc(k)); });
       (r.stoolKinds || []).forEach(function (k) { bits.push(esc(k)); });
       if (VET_TYPES[r.vetType]) bits.push(esc(VET_TYPES[r.vetType]) + ' visit');
+      var rp = state.pets.find(function (x) { return x.id === r.petId; });
+      (r.readings || []).forEach(function (x) {
+        var ms = measureById(rp, x.m);
+        if (!ms) return;
+        var flag = outOfRange(ms, x.v);
+        bits.push(esc(ms.name) + ' ' + esc(fmtMeasureValue(ms, x.v)) + (flag ? ' (' + flag + ')' : '') + (x.t ? ' · ' + esc(timeText(x.t)) : ''));
+      });
       var kinds = kindsOf(r);
       var pills = kinds.length
         ? kinds.map(function (k) { return '<span class="type-pill ' + esc(k) + '">' + esc(label(k)) + '</span>'; }).join('')
@@ -1783,10 +1840,14 @@ body.vr-open { overflow: hidden; }
     });
     return best;
   }
-  function isMedItem(it) { return !ROUTINE_SINGLES[it.kind]; }
-  function routineTitle(it) { return ROUTINE_SINGLES[it.kind] || it.med; }
+  function isMedItem(it) { return !ROUTINE_SINGLES[it.kind] && it.kind !== 'measure'; }
+  function routineTitle(it, pet) {
+    if (it.kind === 'measure') { var ms = measureById(pet || activePet(), it.m); return ms ? ms.name : 'Measure'; }
+    return ROUTINE_SINGLES[it.kind] || it.med;
+  }
   function routineItemFor(pet, kind, med) {
     return (pet.routine || []).find(function (it) {
+      if (kind === 'measure') return it.kind === 'measure' && it.m === med; // med carries the measure id
       return ROUTINE_SINGLES[kind] ? it.kind === kind : (isMedItem(it) && normName(it.med) === normName(med));
     });
   }
@@ -1800,12 +1861,20 @@ body.vr-open { overflow: hidden; }
   function toggleRoutine(pet, item) {
     if (!pet) return toast('Add a pet first');
     var single = ROUTINE_SINGLES[item.kind];
-    var existing = routineItemFor(pet, item.kind, item.med);
+    var existing = routineItemFor(pet, item.kind, item.kind === 'measure' ? item.m : item.med);
     if (existing) {
       pet.routine = pet.routine.filter(function (it) { return it !== existing; });
-      toast(routineTitle(existing) + ' removed from daily routine');
+      toast(routineTitle(existing, pet) + ' removed from daily routine');
     } else {
       var name = String(item.med || '').trim().replace(/\s+/g, ' ');
+      if (item.kind === 'measure') {
+        var ms = measureById(pet, item.m);
+        if (!ms) return;
+        pet.routine = (pet.routine || []).concat([{ id: uid(), kind: 'measure', m: ms.id }]);
+        save();
+        render();
+        return toast(ms.name + ' added to daily routine');
+      }
       if (!single && !name) return toast('Enter a medicine name first');
       var entry = item.kind === 'weight' ? { id: uid(), kind: 'weight' }
         : item.kind === 'mood' ? { id: uid(), kind: 'mood' }
@@ -1823,6 +1892,17 @@ body.vr-open { overflow: hidden; }
     var todays = state.records.filter(function (r) { return r.petId === pet.id && r.date === t; });
     var used = {};
     return (pet.routine || []).map(function (item) {
+      if (item.kind === 'measure') {
+        var latest = null, latestLog = null, count = 0;
+        todays.forEach(function (r) {
+          (r.readings || []).forEach(function (x) {
+            if (x.m !== item.m) return;
+            count++;
+            if (!latest || String(x.t || '') >= String(latest.t || '')) { latest = x; latestLog = r; }
+          });
+        });
+        return { item: item, log: latestLog, med: null, reading: latest, count: count };
+      }
       var match = null;
       for (var i = 0; i < todays.length && !match; i++) {
         var r = todays[i];
@@ -1881,10 +1961,12 @@ body.vr-open { overflow: hidden; }
     }
 
     var doneCount = rows.filter(function (r) { return r.log; }).length;
-    var remaining = rows.map(function (r, i) { return i; }).filter(function (i) { return !rows[i].log; });
+    // "Log all" covers items that need no value typed in (measures always need one)
+    var remaining = rows.map(function (r, i) { return i; }).filter(function (i) { return !rows[i].log && rows[i].item.kind !== 'measure'; });
     list.innerHTML =
       '<div class="routine-list">' + rows.map(function (row, i) {
         var it = row.item, log = row.log;
+        if (it.kind === 'measure') return measureRowHtml(p, row, i);
         var isWeight = it.kind === 'weight', isMood = it.kind === 'mood', isFood = it.kind === 'food';
         var title = esc(routineTitle(it));
         var stop = '<button class="star" data-stop="' + i + '" type="button" title="Stop repeating daily" aria-label="Stop repeating daily" aria-pressed="true">★</button>';
@@ -1964,6 +2046,32 @@ body.vr-open { overflow: hidden; }
     list.querySelectorAll('[data-log]').forEach(function (b) {
       b.addEventListener('click', function () { logRoutineItems(p.id, [entry(Number(b.getAttribute('data-log')))], false); });
     });
+    list.querySelectorAll('[data-mlog]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.getAttribute('data-mlog'));
+        var el = list.querySelector('[data-mval="' + i + '"]');
+        logMeasureReading(p.id, rows[i].item, el ? el.value : '');
+      });
+    });
+    list.querySelectorAll('[data-mval]').forEach(function (el) {
+      el.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        var i = Number(el.getAttribute('data-mval'));
+        logMeasureReading(p.id, rows[i].item, el.value);
+      });
+    });
+    list.querySelectorAll('[data-mundo]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var row = rows[Number(b.getAttribute('data-mundo'))];
+        var r = row.log;
+        r.readings = r.readings.filter(function (x) { return x !== row.reading; });
+        if (isBlankRecord(r)) state.records = state.records.filter(function (x) { return x.id !== r.id; });
+        save();
+        render();
+        toast('Removed');
+      });
+    });
     list.querySelectorAll('[data-mood]').forEach(function (b) {
       b.addEventListener('click', function () {
         var en = entry(Number(b.getAttribute('data-mood-row')));
@@ -1995,10 +2103,10 @@ body.vr-open { overflow: hidden; }
     list.querySelectorAll('[data-stop]').forEach(function (b) {
       b.addEventListener('click', function () {
         var it = rows[Number(b.getAttribute('data-stop'))].item;
-        var what = it.kind === 'weight' ? 'the daily weigh-in' : it.kind === 'food' ? 'daily food' : it.kind === 'mood' ? 'daily mood' : it.med;
+        var what = it.kind === 'weight' ? 'the daily weigh-in' : it.kind === 'food' ? 'daily food' : it.kind === 'mood' ? 'daily mood' : routineTitle(it, p);
         // Sits right beside Log, so confirm rather than remove on a stray tap.
         if (!confirm('Stop showing ' + what + ' every day?\n\nToday\'s log isn\'t affected. You can add it back with ★ in the log form.')) return;
-        toggleRoutine(p, { kind: it.kind, med: it.med });
+        toggleRoutine(p, { kind: it.kind, med: it.med, m: it.m });
       });
     });
     if ($('logAllMeds')) {
@@ -2080,6 +2188,53 @@ body.vr-open { overflow: hidden; }
   }
   // Take one item back out of today's log. The log itself goes only when
   // nothing else is left in it.
+  // A routine row for a custom measure. It can be logged several times a day
+  // (e.g. a glucose curve); it shows the latest reading and how many today.
+  function measureRowHtml(p, row, i) {
+    var it = row.item;
+    var ms = measureById(p, it.m);
+    if (!ms) return '';
+    var stop = '<button class="star" data-stop="' + i + '" type="button" title="Stop repeating daily" aria-label="Stop repeating daily" aria-pressed="true">★</button>';
+    var input = ms.type === 'number'
+      ? '<input class="m-val" type="number" step="any" inputmode="decimal" data-mval="' + i + '" placeholder="' + esc(ms.unit || 'value') + '" aria-label="' + esc(ms.name) + '">'
+      : '<select class="m-val" data-mval="' + i + '" aria-label="' + esc(ms.name) + '"><option value=""></option>' +
+          (ms.levels || []).map(function (l) { return '<option value="' + esc(l) + '">' + esc(l) + '</option>'; }).join('') + '</select>';
+    var sub = row.reading
+      ? 'Latest ' + esc(fmtMeasureValue(ms, row.reading.v)) + (row.reading.t ? ' at ' + esc(timeText(row.reading.t)) : '') + ' · ' + row.count + ' today'
+      : 'Not yet today';
+    return '<div class="routine-row' + (row.reading ? ' done' : '') + '">' +
+      '<div class="routine-check" aria-hidden="true">✓</div>' +
+      '<div class="routine-main"><b>' + esc(ms.name) + '</b><span>' + sub + '</span></div>' +
+      '<div class="routine-actions">' + input +
+        '<button class="sage tiny" data-mlog="' + i + '" type="button">Log</button>' +
+        (row.reading ? '<button class="ghost tiny" data-mundo="' + i + '" type="button" title="Remove the latest reading">Undo</button>' : '') +
+        stop +
+      '</div></div>';
+  }
+  // Add one reading, with the current time, to today's routine log
+  function logMeasureReading(petId, item, value) {
+    var p = state.pets.find(function (x) { return x.id === petId; });
+    var ms = measureById(p, item.m);
+    if (!ms) return;
+    var v = String(value == null ? '' : value).trim();
+    if (v === '') return toast('Enter a value first');
+    if (ms.type === 'number') {
+      if (!isFinite(Number(v))) return toast('Check the value for ' + ms.name);
+      v = Number(v);
+    }
+    var target = todayRecordFor(petId);
+    if (!target) {
+      target = blankRecord(petId, today());
+      target.loggedAt = new Date().toISOString();
+      target.routine = true;
+      state.records.push(target);
+    }
+    target.readings = (target.readings || []).concat([{ m: ms.id, v: v, t: nowHHMM() }]);
+    save();
+    render();
+    var flag = outOfRange(ms, v);
+    toast(ms.name + ' ' + fmtMeasureValue(ms, v) + ' logged' + (flag ? ' (' + flag + ')' : ''));
+  }
   function undoRoutineLog(row) {
     var r = row.log;
     if (row.med) r.meds = r.meds.filter(function (m) { return m !== row.med; });
@@ -2265,6 +2420,186 @@ body.vr-open { overflow: hidden; }
     $('rWeightOz').hidden = unit !== 'lboz';
     $('rWeight').placeholder = unit === 'kg' ? 'kg' : 'lb';
     $('rWeight').setAttribute('aria-label', unit === 'kg' ? 'Weight in kilograms' : 'Weight in pounds');
+  }
+
+  // ===== CUSTOM MEASURES =====
+  // Each pet can have up to 10 measures (pet.measures): things measured at
+  // home like blood glucose or urine pH. A measure is a number with a unit
+  // (no conversion, the unit is just a label) or a set of levels, lowest
+  // first. Readings are stored on logs as { m, v, t } to keep the vault small.
+  function petMeasures(p) { return (p && Array.isArray(p.measures)) ? p.measures : []; }
+  function measureById(p, id) { return petMeasures(p).find(function (x) { return x.id === id; }) || null; }
+  function nextMeasureId(p) {
+    var n = 0;
+    petMeasures(p).forEach(function (x) { var k = parseInt(String(x.id).slice(1), 10); if (k > n) n = k; });
+    return 'm' + (n + 1);
+  }
+  function uniqueReadings(list) {
+    var seen = {};
+    return list.filter(function (x) { var k = x.m + '|' + x.v + '|' + (x.t || ''); if (seen[k]) return false; seen[k] = true; return true; });
+  }
+  function nowHHMM() { var d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  function timeText(t) {
+    if (!t) return '';
+    var p = String(t).split(':');
+    var d = new Date(2000, 0, 1, +p[0], +p[1]);
+    return isNaN(d.getTime()) ? String(t) : d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  // "142 mg/dL" or "Trace"
+  function fmtMeasureValue(ms, v) {
+    if (ms && ms.type === 'number') return trimNum(v, 3) + (ms.unit ? ' ' + ms.unit : '');
+    return String(v);
+  }
+  function outOfRange(ms, v) {
+    if (!ms || ms.type !== 'number') return '';
+    if (has(ms.low) && Number(v) < Number(ms.low)) return 'low';
+    if (has(ms.high) && Number(v) > Number(ms.high)) return 'high';
+    return '';
+  }
+
+  // The form's Measurements section: one field per measure of the pet
+  function renderMeasureRows() {
+    var box = $('measureRows');
+    var p = formPet();
+    // Keep what's typed (and the cursor) through redraws
+    var typed = {};
+    box.querySelectorAll('[data-measure]').forEach(function (el) { typed[el.getAttribute('data-measure')] = el.value; });
+    var ae = document.activeElement;
+    var focusId = ae && box.contains(ae) && ae.getAttribute('data-measure');
+    var list = petMeasures(p);
+    $('addMeasureBtn').hidden = !p || list.length >= MEASURE_LIMIT;
+    if (!list.length) {
+      box.innerHTML = '<p class="measure-empty">Track things you measure at home, like blood glucose or urine pH. Tap ＋ Measure to set one up.</p>';
+      return;
+    }
+    box.innerHTML = list.map(function (ms) {
+      var starred = !!(p && routineItemFor(p, 'measure', ms.id));
+      var input = ms.type === 'number'
+        ? '<input type="number" step="any" inputmode="decimal" data-measure="' + esc(ms.id) + '" placeholder="' + esc(ms.unit || 'value') + '" aria-label="' + esc(ms.name) + '">'
+        : '<select data-measure="' + esc(ms.id) + '" aria-label="' + esc(ms.name) + '"><option value=""></option>' +
+            (ms.levels || []).map(function (l) { return '<option value="' + esc(l) + '">' + esc(l) + '</option>'; }).join('') + '</select>';
+      return '<div class="measure-row">' +
+        '<span class="m-name">' + esc(ms.name) + (ms.unit ? ' <small>' + esc(ms.unit) + '</small>' : '') + '</span>' + input +
+        '<button type="button" class="star" data-measure-star="' + esc(ms.id) + '" aria-pressed="' + starred + '" title="Measure every day" aria-label="Measure ' + esc(ms.name) + ' every day">' + (starred ? '★' : '☆') + '</button>' +
+        '<button type="button" class="ghost tiny m-edit" data-measure-edit="' + esc(ms.id) + '" aria-label="Edit ' + esc(ms.name) + '">✎</button>' +
+      '</div>';
+    }).join('');
+    box.querySelectorAll('[data-measure]').forEach(function (el) {
+      var id = el.getAttribute('data-measure');
+      if (typed[id] !== undefined) el.value = typed[id];
+      if (id === focusId) el.focus();
+    });
+    box.querySelectorAll('[data-measure-star]').forEach(function (b) {
+      b.addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'measure', m: b.getAttribute('data-measure-star') }); });
+    });
+    box.querySelectorAll('[data-measure-edit]').forEach(function (b) {
+      b.addEventListener('click', function () { openMeasureEditor(b.getAttribute('data-measure-edit')); });
+    });
+  }
+  // Readings typed into the form. Returns null (with a message) if one doesn't make sense.
+  function readFormReadings(petId, date) {
+    var p = state.pets.find(function (x) { return x.id === petId; });
+    var out = [], bad = '';
+    var t = $('rTime').value || (date === today() ? nowHHMM() : '');
+    document.querySelectorAll('#measureRows [data-measure]').forEach(function (el) {
+      var v = String(el.value).trim();
+      if (v === '') return;
+      var ms = measureById(p, el.getAttribute('data-measure'));
+      if (!ms) return;
+      if (ms.type === 'number') {
+        var n = Number(v);
+        if (!isFinite(n)) { bad = ms.name; return; }
+        out.push(t ? { m: ms.id, v: n, t: t } : { m: ms.id, v: n });
+      } else {
+        out.push(t ? { m: ms.id, v: v, t: t } : { m: ms.id, v: v });
+      }
+    });
+    if (bad) { toast('Check the value for ' + bad); return null; }
+    return out;
+  }
+  // Editing a log: show the first reading of each measure; keep any others as they are
+  function fillFormReadings(r) {
+    renderMeasureRows();
+    var shown = {};
+    editingKeepReadings = [];
+    (r.readings || []).forEach(function (x) {
+      var el = document.querySelector('#measureRows [data-measure="' + x.m + '"]');
+      if (el && !shown[x.m]) { shown[x.m] = true; el.value = String(x.v); if (x.t && !$('rTime').value) $('rTime').value = x.t; }
+      else editingKeepReadings.push(x);
+    });
+  }
+
+  // Create or edit a measure
+  function openMeasureEditor(id) {
+    var p = formPet();
+    if (!p) return toast('Add a pet first');
+    var ms = id ? measureById(p, id) : null;
+    if (!ms && petMeasures(p).length >= MEASURE_LIMIT) return toast('Up to ' + MEASURE_LIMIT + ' measures per pet');
+    modalTitle.textContent = ms ? 'Edit ' + ms.name : 'New measure for ' + p.name;
+    var type = ms ? ms.type : 'number';
+    modalBody.innerHTML =
+      '<label class="field">Name<input id="meName" maxlength="40" placeholder="e.g. Blood glucose" value="' + esc(ms ? ms.name : '') + '"></label>' +
+      '<label class="field" style="margin-top:10px">Type<select id="meType">' +
+        '<option value="number">Number (e.g. glucose, pH, temperature)</option>' +
+        '<option value="levels">Levels (e.g. test strip: Negative, Trace, Small…)</option>' +
+      '</select></label>' +
+      '<div id="meNumber">' +
+        '<label class="field" style="margin-top:10px">Unit (just a label, nothing is converted)<input id="meUnit" maxlength="16" placeholder="e.g. mg/dL" value="' + esc(ms ? ms.unit || '' : '') + '"></label>' +
+        '<div class="form-grid cols-2" style="margin-top:10px">' +
+          '<label class="field">Normal low (optional)<input id="meLow" type="number" step="any" value="' + esc(ms && has(ms.low) ? ms.low : '') + '"></label>' +
+          '<label class="field">Normal high (optional)<input id="meHigh" type="number" step="any" value="' + esc(ms && has(ms.high) ? ms.high : '') + '"></label>' +
+        '</div>' +
+      '</div>' +
+      '<div id="meLevels"><label class="field" style="margin-top:10px">Levels, lowest first, one per line' +
+        '<textarea id="meLevelList" class="levels-input" placeholder="Negative&#10;Trace&#10;Small&#10;Moderate&#10;Large">' + esc(ms && ms.levels ? ms.levels.join('\n') : '') + '</textarea></label></div>' +
+      (ms && ms.unit ? '<p class="routine-intro" style="color:var(--muted);margin-top:8px">Changing the unit only changes the label. Values already logged aren\'t converted.</p>' : '') +
+      '<div class="form-actions" style="margin-top:14px"><button class="sage" id="meSave" type="button">' + (ms ? 'Save' : 'Add measure') + '</button>' +
+      (ms ? '<button class="ghost" id="meDelete" type="button" style="color:var(--danger)">Delete</button>' : '<button class="ghost" id="meCancel" type="button">Cancel</button>') + '</div>';
+    $('meType').value = type;
+    function showType() { $('meNumber').hidden = $('meType').value !== 'number'; $('meLevels').hidden = $('meType').value !== 'levels'; }
+    showType();
+    $('meType').addEventListener('change', showType);
+    if (ms) $('meType').disabled = true; // changing type would make logged values meaningless
+    if ($('meCancel')) $('meCancel').addEventListener('click', closeModal);
+    $('meSave').addEventListener('click', function () {
+      var cur = state.pets.find(function (x) { return x.id === p.id; });
+      if (!cur) return closeModal();
+      var name = $('meName').value.trim().replace(/\s+/g, ' ');
+      if (!name) return toast('Give the measure a name');
+      var clash = petMeasures(cur).some(function (x) { return x.id !== (ms && ms.id) && normName(x.name) === normName(name); });
+      if (clash) return toast(cur.name + ' already has a measure called ' + name);
+      var def = { id: ms ? ms.id : nextMeasureId(cur), name: name, type: $('meType').value };
+      if (def.type === 'number') {
+        def.unit = $('meUnit').value.trim();
+        var lo = $('meLow').value.trim(), hi = $('meHigh').value.trim();
+        if (lo !== '') def.low = Number(lo);
+        if (hi !== '') def.high = Number(hi);
+        if ((lo !== '' && !isFinite(def.low)) || (hi !== '' && !isFinite(def.high))) return toast('Check the normal range');
+        if (lo !== '' && hi !== '' && def.low > def.high) return toast('The normal low is above the high');
+      } else {
+        def.levels = $('meLevelList').value.split(/\n|,/).map(function (x) { return x.trim(); }).filter(Boolean)
+          .filter(function (x, i, a) { return a.findIndex(function (y) { return normName(y) === normName(x); }) === i; });
+        if (def.levels.length < 2) return toast('Add at least two levels');
+      }
+      cur.measures = ms ? petMeasures(cur).map(function (x) { return x.id === ms.id ? def : x; }) : petMeasures(cur).concat([def]);
+      delete cur.sample;
+      save();
+      closeModal();
+      render();
+      toast(ms ? name + ' updated' : name + ' added');
+    });
+    if ($('meDelete')) $('meDelete').addEventListener('click', function () {
+      if (!confirm('Delete ' + ms.name + '?\n\nReadings already logged stay in the logs, but won\'t show in charts or the vet summary.')) return;
+      var cur = state.pets.find(function (x) { return x.id === p.id; });
+      if (!cur) return closeModal();
+      cur.measures = petMeasures(cur).filter(function (x) { return x.id !== ms.id; });
+      cur.routine = (cur.routine || []).filter(function (it) { return !(it.kind === 'measure' && it.m === ms.id); });
+      save();
+      closeModal();
+      render();
+      toast(ms.name + ' deleted');
+    });
+    openModal();
   }
 
   // ===== QUICK LABELS & PLAY SIZE =====
@@ -2475,7 +2810,8 @@ body.vr-open { overflow: hidden; }
     var labels = [], data = [], chartType = 'line', name = label(mode);
     // Weight, mood, activity and cost are placed by date, so gaps between logs
     // show as gaps. Positions are whole days (UTC) to avoid time-zone drift.
-    var isTimeMode = mode === 'weight' || mode === 'mood' || mode === 'activity' || mode === 'cost';
+    var mDef = mode.indexOf('measure:') === 0 ? measureById(activePet(), mode.slice(8)) : null;
+    var isTimeMode = mode === 'weight' || mode === 'mood' || mode === 'activity' || mode === 'cost' || !!mDef;
     function dayNum(d) { var p = d.split('-'); return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 864e5); }
     function dayText(n, withYear) {
       var o = { month: 'short', day: 'numeric', timeZone: 'UTC' };
@@ -2680,6 +3016,42 @@ body.vr-open { overflow: hidden; }
           ]
         }
       };
+    } else if (mDef) {
+      // A custom measure, placed by date and time of day. Numbers: a line with
+      // the normal range shaded. Levels: dots on a row per level.
+      var pts = [];
+      rs.forEach(function (r) {
+        (r.readings || []).forEach(function (x) {
+          if (x.m !== mDef.id) return;
+          var mins = 720;
+          if (x.t) { var hm = String(x.t).split(':'); mins = (+hm[0]) * 60 + (+hm[1] || 0); }
+          var y = mDef.type === 'number' ? Number(x.v)
+            : (mDef.levels || []).findIndex(function (l) { return normName(l) === normName(x.v); });
+          if (mDef.type === 'number' ? !isFinite(y) : y < 0) return;
+          pts.push({ x: dayNum(r.date) + mins / 1440, y: y });
+        });
+      });
+      pts.sort(function (a, b) { return a.x - b.x; });
+      labels = pts.map(function () { return ''; });
+      name = mDef.name;
+      if (pts.length) {
+        var sets = [{
+          label: mDef.name, data: pts,
+          borderColor: C.accent, backgroundColor: C.accent, borderWidth: 2, tension: 0.2, fill: false,
+          showLine: mDef.type === 'number', pointRadius: mDef.type === 'number' ? 3 : 5, pointHoverRadius: 6,
+          pointBackgroundColor: C.accent, pointBorderColor: C.pointBorder, pointBorderWidth: 1
+        }];
+        if (mDef.type === 'number' && (has(mDef.low) || has(mDef.high))) {
+          var bx0 = rangeFrom ? dayNum(rangeFrom) : pts[0].x, bx1 = dayNum(today()) + 1;
+          var band = function (y, lbl, fill) {
+            return { label: lbl, data: [{ x: bx0, y: y }, { x: bx1, y: y }], isRange: true, borderColor: C.grid, borderDash: [4, 4],
+              borderWidth: 1, pointRadius: 0, pointHoverRadius: 0, fill: fill, backgroundColor: C.accentFaint };
+          };
+          if (has(mDef.low)) sets.push(band(Number(mDef.low), 'Normal low', false));
+          if (has(mDef.high)) sets.push(band(Number(mDef.high), 'Normal high', has(mDef.low) ? '-1' : false));
+        }
+        chartConfig = { type: 'line', data: { datasets: sets } };
+      }
     } else if (mode === 'weight') {
       // One point per day (the last weigh-in that day), plus a 7-day average
       // that smooths out day-to-day noise from the scale.
@@ -2821,8 +3193,21 @@ body.vr-open { overflow: hidden; }
           bodyFont: { family: 'Geist' },
           padding: 10,
           cornerRadius: 8,
+          filter: function (item) { return !item.dataset.isRange; },
           callbacks: isTimeMode ? {
-            title: function (items) { return items[0] ? dayText(items[0].parsed.x, true) : ''; }
+            title: function (items) {
+              if (!items[0]) return '';
+              var x = items[0].parsed.x;
+              if (!mDef) return dayText(x, true);
+              var mins = Math.round((x - Math.floor(x)) * 1440);
+              return dayText(Math.floor(x), true) + ' · ' + timeText(String(Math.floor(mins / 60)).padStart(2, '0') + ':' + String(mins % 60).padStart(2, '0'));
+            },
+            label: function (item) {
+              if (!mDef) return item.dataset.label + ': ' + item.formattedValue;
+              var v = mDef.type === 'number' ? item.parsed.y : (mDef.levels || [])[item.parsed.y];
+              var flag = outOfRange(mDef, v);
+              return mDef.name + ': ' + fmtMeasureValue(mDef, v) + (flag ? ' (' + flag + ')' : '');
+            }
           } : isWeeklyMode ? {
             title: function (items) { return 'Week of ' + (items[0] && items[0].label); },
             label: function (item) {
@@ -2835,9 +3220,9 @@ body.vr-open { overflow: hidden; }
       },
       scales: {
         y: {
-          beginAtZero: mode !== 'weight',
+          beginAtZero: mode !== 'weight' && !mDef,
           stacked: isStackedWeekly,
-          ticks: Object.assign({ precision: 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined }, weightTicks()),
+          ticks: Object.assign({ precision: 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined }, weightTicks(), measureTicks()),
           grid: { color: C.grid },
           title: isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
         },
@@ -2851,6 +3236,13 @@ body.vr-open { overflow: hidden; }
 
     // Weight axis labels in the device's unit. For pounds and ounces the marks
     // land on whole ounces or pounds (4 oz, 8 oz, 1 lb...) so labels are exact.
+    // Measure axis: numbers with their unit, or level names
+    function measureTicks() {
+      if (!mDef) return {};
+      if (mDef.type === 'number') return { precision: undefined, callback: function (v) { return trimNum(v, 2) + (mDef.unit ? ' ' + mDef.unit : ''); } };
+      var levels = mDef.levels || [];
+      return { precision: undefined, stepSize: 0.5, callback: function (v) { return Number.isInteger(v) && levels[v] !== undefined ? levels[v] : ''; } };
+    }
     function weightTicks() {
       if (mode !== 'weight') return {};
       var u = weightUnit();
@@ -3041,6 +3433,10 @@ body.vr-open { overflow: hidden; }
     });
     record.playSize = tagPressed('activity') ? formPlaySize : '';
     record.vetType = tagPressed('vet') ? formVetType : '';
+    var readings = readFormReadings(record.petId, record.date);
+    if (!readings) return null;
+    // When editing, readings the form doesn't show (e.g. a second glucose reading that day) are kept
+    record.readings = (existing ? editingKeepReadings.slice() : []).concat(readings);
     if (isBlankRecord(record)) { toast('Enter something to log'); return null; }
     return record;
   }
@@ -3104,6 +3500,7 @@ body.vr-open { overflow: hidden; }
     target.tags = union(target.tags, add.tags);
     Object.keys(LABEL_KINDS).forEach(function (kind) { var k = LABEL_KINDS[kind].logKey; target[k] = union(target[k], add[k]); });
     if (add.note) target.note = target.note ? target.note + '\n' + add.note : add.note;
+    target.readings = uniqueReadings((target.readings || []).concat(add.readings || []));
     target.v = DATA_VERSION;
     save();
     clearRecordForm();
@@ -3160,6 +3557,7 @@ body.vr-open { overflow: hidden; }
     $('rCost').value = r.cost;
     $('rFood').value = r.food || '';
     $('rNote').value = r.note || '';
+    fillFormReadings(r);
     setTags(r.tags);
     formLabels = { symptom: (r.symptoms || []).slice(), vomit: (r.vomitKinds || []).slice(),
       stool: (r.stoolKinds || []).slice(), play: (r.playKinds || []).slice() };
@@ -3193,7 +3591,9 @@ body.vr-open { overflow: hidden; }
   function clearRecordForm() {
     editingLogId = null;
     $('rId').value = '';
-    ['rMood', 'rWeight', 'rWeightOz', 'rActivity', 'rCost', 'rFood', 'rNote'].forEach(function (id) { $(id).value = ''; });
+    ['rMood', 'rWeight', 'rWeightOz', 'rActivity', 'rCost', 'rFood', 'rNote', 'rTime'].forEach(function (id) { $(id).value = ''; });
+    editingKeepReadings = [];
+    document.querySelectorAll('#measureRows [data-measure]').forEach(function (el) { el.value = ''; });
     $('rDate').value = today();
     setTags([]);
     formLabels = { symptom: [], vomit: [], stool: [], play: [] };
@@ -3216,13 +3616,13 @@ body.vr-open { overflow: hidden; }
   }
 
   function exportCsv() {
-    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'medications', 'note']];
+    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'medications', 'readings', 'note']];
     state.records.forEach(function (r) {
       var p = state.pets.find(function (x) { return x.id === r.petId; }) || {};
       var meds = r.meds.map(function (m) { return m.name + (m.note ? ' (' + m.note + ')' : ''); }).join('; ');
       rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), (r.symptoms || []).join('; '),
         (r.vomitKinds || []).join('; '), (r.stoolKinds || []).join('; '), r.vetType || '', r.playSize || '', (r.playKinds || []).join('; '),
-        r.weight, r.mood, r.activity, r.cost, r.food, meds, r.note]);
+        r.weight, r.mood, r.activity, r.cost, r.food, meds, readingsText(p, r), r.note]);
     });
     var csv = rows.map(function (row) {
       return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
@@ -3258,17 +3658,24 @@ body.vr-open { overflow: hidden; }
     var p = activePet();
     var name = p ? p.name : 'Luna';
     var rows = [
-      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'food', 'mood', 'activity', 'cost', 'note'],
-      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.'],
-      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', ''],
-      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', '', '', '', 'Restless all evening'],
-      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', 'Big play at 10 pm'],
-      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', 'New kibble', '', '', '', ''],
-      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', ''],
-      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', 'scheduled', '', '', '', '', '', '85', 'Annual checkup (' + name + ')']
+      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'food', 'mood', 'activity', 'cost', 'note', 'readings'],
+      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.', ''],
+      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', '', 'Blood glucose=142 @08:00'],
+      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', '', '', '', 'Restless all evening', ''],
+      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', 'Big play at 10 pm', ''],
+      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', 'New kibble', '', '', '', '', ''],
+      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', '', ''],
+      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', 'scheduled', '', '', '', '', '', '85', 'Annual checkup (' + name + ')', '']
     ];
     download('pet-health-import-template.csv', rows.map(csvLine).join('\n'), 'text/csv');
     toast('Template downloaded');
+  }
+  // "Blood glucose=142 @08:00; Ketones=Trace @08:05"
+  function readingsText(pet, r) {
+    return (r.readings || []).map(function (x) {
+      var ms = measureById(pet, x.m);
+      return ms ? ms.name + '=' + x.v + (x.t ? ' @' + x.t : '') : '';
+    }).filter(Boolean).join('; ');
   }
   function csvLine(row) {
     return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
@@ -3317,7 +3724,8 @@ body.vr-open { overflow: hidden; }
     return JSON.stringify([r.petId, r.date, n(r.weight), n(r.mood), n(r.activity), n(r.cost), t(r.food), t(r.note),
       (r.meds || []).map(function (m) { return t(m.name) + '|' + t(m.note); }).sort(),
       (r.tags || []).slice().sort(), (r.symptoms || []).map(t).sort(), t(r.playSize), (r.playKinds || []).map(t).sort(),
-      (r.vomitKinds || []).map(t).sort(), (r.stoolKinds || []).map(t).sort(), t(r.vetType)]);
+      (r.vomitKinds || []).map(t).sort(), (r.stoolKinds || []).map(t).sort(), t(r.vetType),
+      (r.readings || []).map(function (x) { return x.m + '|' + t(x.v) + '|' + (x.t || ''); }).sort()]);
   }
 
   // Work out what a CSV would add, without changing anything
@@ -3329,6 +3737,7 @@ body.vr-open { overflow: hidden; }
       meds: ['medications', 'medication', 'medicines', 'medicine', 'meds'],
       tags: ['tags', 'types', 'type', 'events'], symptoms: ['symptoms', 'symptom labels'],
       vomit: ['vomit', 'vomit labels'], stool: ['stool', 'stool labels'], vetType: ['vet type', 'visit type'],
+      readings: ['readings', 'measurements', 'measures'],
       playSize: ['play size', 'size'], play: ['play', 'play labels'],
       food: ['food', 'meal'], mood: ['mood'], activity: ['activity', 'activity minutes', 'minutes'],
       cost: ['cost', 'price'], note: ['note', 'notes', 'description', 'comment']
@@ -3431,7 +3840,33 @@ body.vr-open { overflow: hidden; }
         petsByName[key] = pet;
         plan.newPets.push(pet);
       }
+      // Readings: "Name=value @HH:MM; ..." for measures this pet has
+      var readings = [], readingProblem = '';
+      list('readings').forEach(function (part) {
+        if (readingProblem) return;
+        var mm = /^(.+?)\s*=\s*(.+?)(?:\s*@\s*(\d{1,2}):(\d{2}))?$/.exec(part);
+        if (!mm) { readingProblem = 'Reading "' + part + '" should look like Name=value @HH:MM'; return; }
+        var ms = petMeasures(pet).find(function (x) { return normName(x.name) === normName(mm[1]); });
+        if (!ms) { readingProblem = pet.name + ' has no measure called "' + mm[1].trim() + '" (set it up in the app first)'; return; }
+        var val = mm[2].trim();
+        if (ms.type === 'number') {
+          if (!isFinite(Number(val))) { readingProblem = ms.name + ' "' + val + '" isn\'t a number'; return; }
+          val = Number(val);
+        } else {
+          var lv = (ms.levels || []).find(function (l) { return normName(l) === normName(val); });
+          if (!lv) { readingProblem = ms.name + ' "' + val + '" isn\'t one of its levels'; return; }
+          val = lv;
+        }
+        var reading = { m: ms.id, v: val };
+        if (mm[3] !== undefined) {
+          if (+mm[3] > 23 || +mm[4] > 59) { readingProblem = 'Time "' + mm[3] + ':' + mm[4] + '" isn\'t valid'; return; }
+          reading.t = String(mm[3]).padStart(2, '0') + ':' + mm[4];
+        }
+        readings.push(reading);
+      });
+      if (readingProblem) return problem(readingProblem);
       var rec = blankRecord(pet.id, date);
+      rec.readings = readings;
       rec.weight = weight;
       rec.meds = meds;
       rec.tags = tags;
@@ -3460,7 +3895,7 @@ body.vr-open { overflow: hidden; }
     // Stay within what the cloud vault can hold
     var total = state.records.length + plan.adds.length;
     if (total > 5000) plan.error = 'This would bring the vault to ' + total.toLocaleString() + ' logs; the limit is 5,000.';
-    else if (JSON.stringify({ pets: state.pets.concat(plan.newPets), records: state.records.concat(plan.adds) }).length > 950000) {
+    else if (vaultUsage(state.pets.concat(plan.newPets), state.records.concat(plan.adds)).byBytes > 0.97) {
       plan.error = 'This would make the vault too large to sync (about 1 MB is the limit). Try importing fewer rows.';
     }
     // New pets only count if they have logs to add
@@ -3787,7 +4222,30 @@ body.vr-open { overflow: hidden; }
     // Vet visits by type
     var visits = recs.filter(function (r) { return hasTag(r, 'vet'); });
 
+    // Custom measures with readings in the period
+    var measureStats = petMeasures(pet).map(function (ms) {
+      var rd = [];
+      recs.forEach(function (r) { (r.readings || []).forEach(function (x) { if (x.m === ms.id) rd.push({ date: r.date, t: x.t || '', v: x.v }); }); });
+      if (!rd.length) return null;
+      rd.sort(function (a, b) { return (a.date + a.t).localeCompare(b.date + b.t); });
+      var out = { def: ms, readings: rd, latest: rd[rd.length - 1] };
+      if (ms.type === 'number') {
+        var vals = rd.map(function (x) { return Number(x.v); });
+        out.min = Math.min.apply(null, vals);
+        out.max = Math.max.apply(null, vals);
+        out.avg = vals.reduce(function (a, b) { return a + b; }, 0) / vals.length;
+        out.below = vals.filter(function (v) { return outOfRange(ms, v) === 'low'; }).length;
+        out.above = vals.filter(function (v) { return outOfRange(ms, v) === 'high'; }).length;
+      } else {
+        out.levelCounts = (ms.levels || []).map(function (l) {
+          return { name: l, count: rd.filter(function (x) { return normName(x.v) === normName(l); }).length };
+        });
+      }
+      return out;
+    }).filter(Boolean);
+
     return {
+      measures: measureStats,
       foods: foods,
       mood: mood,
       visits: { count: visits.length, types: countLabels(visits.map(function (r) { return VET_TYPES[r.vetType] || ''; }).filter(Boolean)) },
@@ -3817,7 +4275,7 @@ body.vr-open { overflow: hidden; }
     };
   }
 
-  function renderVetReport(sum, unit, fullLog, marks) {
+  function renderVetReport(sum, unit, fullLog, marks, include) {
     var p = sum.pet;
     function wt(v) { return esc(fmtWeight(v, unit)); }
     function signed(v, digits) { return (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v).toFixed(digits); }
@@ -3960,6 +4418,10 @@ body.vr-open { overflow: hidden; }
           if (PLAY_SIZES[r.playSize]) bits.push(esc(PLAY_SIZES[r.playSize]) + ' play');
           (r.playKinds || []).concat(r.symptoms || [], r.vomitKinds || [], r.stoolKinds || []).forEach(function (l) { bits.push(esc(l)); });
           if (VET_TYPES[r.vetType]) bits.push(esc(VET_TYPES[r.vetType]) + ' visit');
+          (r.readings || []).forEach(function (x) {
+            var md = measureById(p, x.m);
+            if (md) bits.push(esc(md.name) + ' ' + esc(fmtMeasureValue(md, x.v)) + (x.t ? ' at ' + esc(timeText(x.t)) : ''));
+          });
           if (r.food) bits.push('Food: ' + esc(r.food));
           if (has(r.activity)) bits.push('Activity ' + esc(r.activity) + ' min');
           if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
@@ -3967,6 +4429,28 @@ body.vr-open { overflow: hidden; }
           return '<tr><td>' + esc(formatDate(r.date)) + '</td><td>' + (bits.join('; ') || '—') + '</td><td>' + esc(r.note || '') + '</td></tr>';
         }).join('') + '</table></div>' : '<p class="vr-muted">No logs in this period.</p>';
       h += '</section>';
+    }
+
+    // Measurements (each one opt-in)
+    include = include || {};
+    var chosen = sum.measures.filter(function (m) { return include[sum.pet.id + ':' + m.def.id]; });
+    if (chosen.length) {
+      h += '<section><h2>Measurements</h2>' + chosen.map(function (m) {
+        var d = m.def, line;
+        var when = esc(shortDate(m.latest.date)) + (m.latest.t ? ' ' + esc(timeText(m.latest.t)) : '');
+        if (d.type === 'number') {
+          var range = has(d.low) || has(d.high) ? ' · normal ' + (has(d.low) ? trimNum(d.low, 3) : '') + '–' + (has(d.high) ? trimNum(d.high, 3) : '') : '';
+          line = m.readings.length + (m.readings.length === 1 ? ' reading' : ' readings') +
+            ' · latest <b>' + esc(fmtMeasureValue(d, m.latest.v)) + '</b> (' + when + ')' +
+            ' · average ' + esc(fmtMeasureValue(d, Math.round(m.avg * 100) / 100)) +
+            ' · lowest ' + esc(trimNum(m.min, 3)) + ', highest ' + esc(trimNum(m.max, 3)) + esc(range) +
+            (m.above || m.below ? '<div class="vr-muted">' + (m.above ? m.above + ' above normal' : '') + (m.above && m.below ? ', ' : '') + (m.below ? m.below + ' below normal' : '') + '</div>' : '');
+        } else {
+          line = m.readings.length + (m.readings.length === 1 ? ' reading' : ' readings') + ' · latest <b>' + esc(m.latest.v) + '</b> (' + when + ')' +
+            '<div class="vr-muted">' + m.levelCounts.map(function (l) { return esc(l.name) + ' ' + l.count; }).join(' · ') + '</div>';
+        }
+        return '<h3 class="vr-sub">' + esc(d.name) + (d.unit ? ' (' + esc(d.unit) + ')' : '') + '</h3><p>' + line + '</p>' + measureSparkline(m, sum.from, sum.to);
+      }).join('') + '</section>';
     }
 
     h += '<footer class="vr-foot">Recorded by the owner in Pet Health Tracker · Created ' + esc(formatDate(today())) + '</footer>';
@@ -3978,6 +4462,72 @@ body.vr-open { overflow: hidden; }
   // vomiting and diarrhea, so a vet can see whether they line up with weight
   // changes. Shapes, not colors, tell the events apart so it prints in black
   // and white. Drawn as SVG so it prints crisply.
+  // A small chart for one measure on the vet summary: numbers as a line with
+  // the normal range shaded; levels as dots on a row per level.
+  function measureSparkline(m, from, to) {
+    var d = m.def;
+    var W = 640, padL = 80, padR = 12, padT = 8, axisH = 20;
+    var isNum = d.type === 'number';
+    var levels = d.levels || [];
+    var plotH = isNum ? 90 : Math.max(2, levels.length) * 16;
+    var H = padT + plotH + axisH;
+    var t0 = new Date(from + 'T00:00:00').getTime(), t1 = new Date(to + 'T23:59:00').getTime();
+    function x(r) {
+      var hm = String(r.t || '12:00').split(':');
+      var t = new Date(r.date + 'T00:00:00').getTime() + ((+hm[0]) * 60 + (+hm[1] || 0)) * 60000;
+      return padL + (t1 === t0 ? 0.5 : (t - t0) / (t1 - t0)) * (W - padL - padR);
+    }
+    var svg = '';
+    if (isNum) {
+      var lo = m.min, hi = m.max;
+      if (has(d.low)) lo = Math.min(lo, Number(d.low));
+      if (has(d.high)) hi = Math.max(hi, Number(d.high));
+      if (hi === lo) { hi += 1; lo -= 1; }
+      // Some space above and below, so the normal range reads as a band
+      var pad = (hi - lo) * 0.15;
+      hi += pad; lo -= pad;
+      var y = function (v) { return padT + (1 - (v - lo) / (hi - lo)) * plotH; };
+      var ticks = [];
+      if (has(d.low) || has(d.high)) {
+        var top = y(has(d.high) ? Number(d.high) : hi), bottom = y(has(d.low) ? Number(d.low) : lo);
+        svg += '<rect x="' + padL + '" y="' + top.toFixed(1) + '" width="' + (W - padL - padR) + '" height="' + Math.max(0, bottom - top).toFixed(1) + '" fill="#eee"/>';
+        if (has(d.high)) ticks.push(Number(d.high));
+        if (has(d.low)) ticks.push(Number(d.low));
+      }
+      // Label the normal range's edges, plus readings beyond it
+      if (!has(d.high) || m.max > Number(d.high)) ticks.push(m.max);
+      if (!has(d.low) || m.min < Number(d.low)) ticks.push(m.min);
+      var placed = []; // skip a label that would overlap one already drawn
+      ticks.filter(function (v, i, a) { return a.indexOf(v) === i; }).forEach(function (v) {
+        var ty = y(v);
+        if (placed.some(function (p) { return Math.abs(p - ty) < 12; })) return;
+        placed.push(ty);
+        svg += '<text x="' + (padL - 6) + '" y="' + (ty + 4).toFixed(1) + '" text-anchor="end">' + esc(trimNum(v, 3)) + '</text>';
+      });
+      svg += '<polyline fill="none" stroke="#222" stroke-width="1.5" points="' +
+        m.readings.map(function (r) { return x(r).toFixed(1) + ',' + y(Number(r.v)).toFixed(1); }).join(' ') + '"/>';
+      m.readings.forEach(function (r) { svg += '<circle cx="' + x(r).toFixed(1) + '" cy="' + y(Number(r.v)).toFixed(1) + '" r="2.5" fill="#222"/>'; });
+    } else {
+      levels.forEach(function (l, i) {
+        var cy = padT + plotH - (i + 0.5) * (plotH / levels.length);
+        svg += '<line x1="' + padL + '" y1="' + cy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + cy.toFixed(1) + '" stroke="#eee"/>' +
+          '<text x="' + (padL - 6) + '" y="' + (cy + 4).toFixed(1) + '" text-anchor="end">' + esc(l) + '</text>';
+      });
+      m.readings.forEach(function (r) {
+        var i = levels.findIndex(function (l) { return normName(l) === normName(r.v); });
+        if (i < 0) return;
+        var cy = padT + plotH - (i + 0.5) * (plotH / levels.length);
+        svg += '<circle cx="' + x(r).toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="4" fill="#222"/>';
+      });
+    }
+    svg += '<text x="' + padL + '" y="' + (H - 4) + '">' + esc(shortDate(from)) + '</text>' +
+      '<text x="' + (W - padR) + '" y="' + (H - 4) + '" text-anchor="end">' + esc(shortDate(to)) + '</text>';
+    return '<svg class="vr-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(d.name) + ' over the period">' + svg + '</svg>';
+  }
+  function vetMeasureChoices() {
+    try { return JSON.parse(localStorage.getItem('petHealth.vetMeasures') || '{}') || {}; } catch (e) { return {}; }
+  }
+
   // What can be marked on the vet summary's weight chart (all off by default)
   var VET_MARKS = [
     { key: 'symptom', label: 'Symptom', choice: 'Symptoms', shape: 'triangle' },
@@ -4104,6 +4654,7 @@ body.vr-open { overflow: hidden; }
     var marks = vetMarks();
     // Only offer marks that have something to show in this period
     var offered = VET_MARKS.filter(function (l) { return sum.events[l.key].length; });
+    var include = vetMeasureChoices();
     report.innerHTML =
       '<div class="vr-toolbar">' +
         (offered.length
@@ -4111,16 +4662,31 @@ body.vr-open { overflow: hidden; }
               return '<label><input type="checkbox" data-mark="' + l.key + '"' + (marks[l.key] ? ' checked' : '') + '> ' + l.choice + '</label>';
             }).join('') + '</div>'
           : '') +
+        (sum.measures.length
+          ? '<div class="vr-marks"><span>Include measurements:</span>' + sum.measures.map(function (m) {
+              var key = pet.id + ':' + m.def.id;
+              return '<label><input type="checkbox" data-include="' + esc(key) + '"' + (include[key] ? ' checked' : '') + '> ' + esc(m.def.name) + '</label>';
+            }).join('') + '</div>'
+          : '') +
         '<button class="sage" id="vrPrint" type="button">Print / Save as PDF</button>' +
         '<button class="secondary" id="vrClose" type="button">Close</button>' +
       '</div>' +
-      '<article class="vr-page">' + renderVetReport(sum, unit, fullLog, marks) + '</article>';
+      '<article class="vr-page">' + renderVetReport(sum, unit, fullLog, marks, include) + '</article>';
     report.querySelectorAll('[data-mark]').forEach(function (box) {
       box.addEventListener('change', function () {
         marks[box.getAttribute('data-mark')] = box.checked;
         try { localStorage.setItem('petHealth.vetMarks', JSON.stringify(marks)); } catch (e) {}
         var top = report.scrollTop;
-        report.querySelector('.vr-page').innerHTML = renderVetReport(sum, unit, fullLog, marks);
+        report.querySelector('.vr-page').innerHTML = renderVetReport(sum, unit, fullLog, marks, include);
+        report.scrollTop = top;
+      });
+    });
+    report.querySelectorAll('[data-include]').forEach(function (box) {
+      box.addEventListener('change', function () {
+        include[box.getAttribute('data-include')] = box.checked;
+        try { localStorage.setItem('petHealth.vetMeasures', JSON.stringify(include)); } catch (e) {}
+        var top = report.scrollTop;
+        report.querySelector('.vr-page').innerHTML = renderVetReport(sum, unit, fullLog, marks, include);
         report.scrollTop = top;
       });
     });
@@ -4226,7 +4792,7 @@ body.vr-open { overflow: hidden; }
   // on every read, so data written by an older copy of the app still loads.
   function blankRecord(petId, date) {
     return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', meds: [], tags: [], note: '',
-      symptoms: [], playSize: '', playKinds: [], vomitKinds: [], stoolKinds: [], vetType: '' };
+      symptoms: [], playSize: '', playKinds: [], vomitKinds: [], stoolKinds: [], vetType: '', readings: [] };
   }
   // A stool log marked as diarrhea (what used to be a Diarrhea log)
   function isDiarrhea(r) {
@@ -4244,6 +4810,15 @@ body.vr-open { overflow: hidden; }
       return out;
     });
     if (r.med && !r.meds.length) r.meds.push({ name: String(r.med).trim(), note: '' });
+    // Custom-measure readings: { m: measure id, v: number or level, t: 'HH:MM' }
+    r.readings = (Array.isArray(r.readings) ? r.readings : []).filter(function (x) { return x && x.m && x.v !== '' && x.v != null; })
+      .map(function (x) { var o = { m: String(x.m), v: typeof x.v === 'number' ? x.v : String(x.v) }; if (x.t) o.t = String(x.t); return o; });
+    // Every field present, whether or not it was saved (cloud saves leave out empty ones)
+    ['symptoms', 'playKinds', 'vomitKinds', 'stoolKinds'].forEach(function (k) {
+      r[k] = Array.isArray(r[k]) ? r[k].filter(function (x) { return typeof x === 'string' && x; }) : [];
+    });
+    r.playSize = r.playSize ? String(r.playSize) : '';
+    r.vetType = r.vetType ? String(r.vetType) : '';
     var legacy = !Array.isArray(r.tags);
     r.tags = legacy ? [] : r.tags.filter(function (t, i, a) { return typeof t === 'string' && a.indexOf(t) === i; });
     // Version 4: Diarrhea became Stool, with "Diarrhea" as the stool's label
@@ -4288,10 +4863,12 @@ body.vr-open { overflow: hidden; }
     if (r.meds.length) k.push('medication');
     if (r.food) k.push('meal');
     if (has(r.activity) && k.indexOf('activity') < 0) k.push('activity');
+    if ((r.readings || []).length) k.push('measure');
     return k;
   }
   function isBlankRecord(r) {
-    return !has(r.weight) && !has(r.mood) && !has(r.activity) && !has(r.cost) && !r.food && !r.meds.length && !r.tags.length && !r.note;
+    return !has(r.weight) && !has(r.mood) && !has(r.activity) && !has(r.cost) && !r.food && !r.meds.length && !r.tags.length && !r.note &&
+      !(r.readings || []).length;
   }
   // ===== SAVING & CLOUD SYNC =====
   // Local storage is always written first, so nothing is lost if the cloud is
@@ -4319,6 +4896,65 @@ body.vr-open { overflow: hidden; }
   // to differ from the last save, which copies of the app from before this
   // scheme never do, so their saves are refused.
   function writeStamp() { return { _v: DATA_VERSION, _w: uid() }; }
+
+  // ===== CLOUD STORAGE =====
+  // Logs are saved to the cloud without their empty fields (blank text, empty
+  // lists, flags that are off). Loading fills them back in (normalizeRecord),
+  // so nothing changes on screen. id, petId, date, v and tags always stay:
+  // a log without a tags list is treated as the pre-2026 format.
+  var VAULT_LIMIT_BYTES = 1048576; // Firestore's maximum document size (1 MiB)
+  var VAULT_LIMIT_LOGS = 5000;     // records.size() limit in firestore.rules
+  function isEmptyValue(v) { return v === '' || v == null || v === false || (Array.isArray(v) && !v.length); }
+  function compactRecord(r) {
+    var out = {};
+    Object.keys(r).forEach(function (k) {
+      var v = r[k];
+      if (k === 'meds' && Array.isArray(v)) {
+        v = v.map(function (m) { var o = { name: m.name }; if (m.note) o.note = m.note; if (m.at) o.at = m.at; return o; });
+      }
+      if (k === 'id' || k === 'petId' || k === 'date' || k === 'v' || k === 'tags' || !isEmptyValue(v)) out[k] = v;
+    });
+    if (!Array.isArray(out.tags)) out.tags = [];
+    return out;
+  }
+  function cloudRecords(records) { return records.map(compactRecord); }
+  // Size of a value as Firestore counts it: strings are UTF-8 bytes + 1,
+  // numbers 8, booleans and null 1, lists the sum of their items, and maps the
+  // sum of each field name (as a string) plus its value.
+  // UTF-8 byte length of a string (like TextEncoder, which some environments lack)
+  function utf8Bytes(str) {
+    var n = 0;
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xD800 && c <= 0xDBFF) { n += 4; i++; } // surrogate pair (e.g. emoji)
+      else n += 3;
+    }
+    return n;
+  }
+  function firestoreBytes(v) {
+    if (v === null || v === undefined || typeof v === 'boolean') return 1;
+    if (typeof v === 'number') return 8;
+    if (typeof v === 'string') return utf8Bytes(v) + 1;
+    if (Array.isArray(v)) return v.reduce(function (n, x) { return n + firestoreBytes(x); }, 0);
+    return Object.keys(v).reduce(function (n, k) { return n + utf8Bytes(k) + 1 + firestoreBytes(v[k]); }, 0);
+  }
+  // How full the cloud vault is (or would be, for the given pets and logs)
+  function vaultUsage(pets, records) {
+    var doc = { pets: pets, records: cloudRecords(records), _email: '', _createdAt: '2026-01-01T00:00:00.000Z', _v: DATA_VERSION, _w: 'xxxxxxxxxxxxxxxxxxxx' };
+    var bytes = 7 + 9 + 16 + firestoreBytes(doc) + 32 + 260; // name + fields + overhead, with room for an email
+    var byBytes = bytes / VAULT_LIMIT_BYTES, byLogs = records.length / VAULT_LIMIT_LOGS;
+    return { bytes: bytes, logs: records.length, byBytes: byBytes, byLogs: byLogs, used: Math.max(byBytes, byLogs) };
+  }
+  function warnIfNearlyFull() {
+    if (warnedFull || !syncCode) return;
+    var u = vaultUsage(state.pets, state.records);
+    if (u.used >= 0.8) {
+      warnedFull = true;
+      toast('Cloud storage is ' + Math.round(u.used * 100) + '% full — see Cloud sync for details');
+    }
+  }
   function pushToCloud() {
     if (!db || !syncCode || newerDataSeen) return;
     // Remember there are changes the cloud hasn't confirmed yet. This survives
@@ -4332,9 +4968,10 @@ body.vr-open { overflow: hidden; }
     var sent = JSON.parse(JSON.stringify({ pets: state.pets, records: state.records }));
     // merge:true keeps _email and _createdAt, which are written at code-generation time
     db.collection('vaults').doc(syncCode)
-      .set(Object.assign({ pets: state.pets, records: state.records }, writeStamp()), { merge: true })
+      .set(Object.assign({ pets: state.pets, records: cloudRecords(state.records) }, writeStamp()), { merge: true })
       .then(function () {
         if (mySeq === writeSeq) { try { localStorage.removeItem(PENDING_KEY); } catch (e) {} }
+        warnIfNearlyFull();
       })
       .catch(function (err) {
         if (err && err.code === 'permission-denied') {
@@ -4444,6 +5081,7 @@ body.vr-open { overflow: hidden; }
     out.playKinds = union(remote.playKinds, local.playKinds);
     out.vomitKinds = union(remote.vomitKinds, local.vomitKinds);
     out.stoolKinds = union(remote.stoolKinds, local.stoolKinds);
+    out.readings = uniqueReadings((remote.readings || []).concat(local.readings || []));
     if (!local.playSize && remote.playSize) out.playSize = remote.playSize;
     if (!local.vetType && remote.vetType) out.vetType = remote.vetType;
     return out;
@@ -4495,6 +5133,18 @@ body.vr-open { overflow: hidden; }
     writeLocal();
   }
   function handleAuthClick() { openSyncModal(); }
+  // "Cloud storage: 9% used", with a bar and the details
+  function storageMeterHtml() {
+    var u = vaultUsage(state.pets, state.records);
+    var pct = Math.max(1, Math.round(u.used * 100));
+    var full = u.used >= 0.8;
+    return '<div class="storage-meter' + (full ? ' full' : '') + '">' +
+      '<div class="storage-head"><span>Cloud storage</span><b>' + pct + '% used</b></div>' +
+      '<div class="storage-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><i style="width:' + Math.min(100, pct) + '%"></i></div>' +
+      '<div class="storage-detail">' + Math.round(u.bytes / 1024) + ' KB of 1 MB · ' + u.logs.toLocaleString() + ' of ' + VAULT_LIMIT_LOGS.toLocaleString() + ' logs</div>' +
+      (full ? '<div class="storage-detail">Getting full. Export a backup; older logs will need archiving soon.</div>' : '') +
+    '</div>';
+  }
   function openSyncModal() {
     modalTitle.textContent = 'Cloud Sync';
     if (syncCode) {
@@ -4504,6 +5154,7 @@ body.vr-open { overflow: hidden; }
           '<code style="font-family:monospace;font-size:26px;font-weight:700;letter-spacing:.18em;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 14px;flex:1;text-align:center">' + esc(syncCode) + '</code>' +
           '<button id="msCopy" class="secondary" type="button" style="flex-shrink:0;min-height:44px">Copy</button>' +
         '</div>' +
+        storageMeterHtml() +
         '<label class="field" style="margin-bottom:12px">Add or update email<input type="email" id="msEmailUpdate" placeholder="you@example.com" autocomplete="email"></label>' +
         '<button id="msSaveEmail" class="secondary" type="button" style="width:100%;margin-bottom:10px">Save email</button>' +
         '<button id="msDisconnect" class="ghost" type="button" style="width:100%;color:var(--danger)">Disconnect this device</button>';
@@ -4561,7 +5212,7 @@ body.vr-open { overflow: hidden; }
         }
         syncCode = code;
         localStorage.setItem(SYNC_CODE_KEY, code);
-        var doc = Object.assign({ pets: state.pets, records: state.records, _email: email, _createdAt: new Date().toISOString() }, writeStamp());
+        var doc = Object.assign({ pets: state.pets, records: cloudRecords(state.records), _email: email, _createdAt: new Date().toISOString() }, writeStamp());
         db.collection('vaults').doc(code).set(doc).catch(reportSyncError);
         startSync(true); // this device's copy is the vault's starting point
         renderAuthBtn();
@@ -4638,7 +5289,7 @@ body.vr-open { overflow: hidden; }
   function label(t) {
     return ({
       weight: 'Weight', meal: 'Meal', medication: 'Medication',
-      activity: 'Activity', symptom: 'Symptom', vet: 'Vet visit',
+      activity: 'Activity', symptom: 'Symptom', vet: 'Vet visit', measure: 'Measurement',
       vomit: 'Vomit', diarrhea: 'Diarrhea', stool: 'Stool',
       mood: 'Mood', cost: 'Cost', types: 'Types'
     })[t] || t;
