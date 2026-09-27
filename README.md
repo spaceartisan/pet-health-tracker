@@ -9,7 +9,7 @@ A responsive web app for tracking the health and daily care of your pets. Works 
 - Track weight, meals, medications, activity, mood, symptoms, vomit/diarrhea episodes, stool, urination, and vet visits
 - Log multiple foods in one entry, with amount/unit, reusable Quick Foods, optional package size, and calorie density
 - Trend charts: daily weight (with 7-day average and 30-day change), food intake (kcal or amount, with 7- and 30-day averages), mood, activity and cost; weekly counts of vomit, diarrhea, stool, urination, symptoms and play
-- Search, edit, and delete individual logs (shown 50 at a time)
+- Search, edit, and delete individual logs (shown 50 at a time; repeated stool, urination, vomit or symptom logs on one day share a card)
 - Pet summary: latest weight, 30-day weight change, 30-day mood, last vet visit, and anything notable from the last 14 days
 - Daily Routine quick logging for medicines, weight, food, mood, custom measurements, and event types such as stool, urination, vomit, symptoms, activity, and vet visits; repeatable events require their useful detail (such as stool/vomit labels or visit type), while retaining Log another, same-day counts, defaults, and last-logged recency
 - Vet summary for a chosen period, printable as PDF: weight, medicines, vomiting, stool and urination, food intake by week, mood, play, symptoms and notes; optional trend charts (food, mood, activity, vomit & diarrhea, stool, urination, symptoms, play) drawn on the weight chart's timeline so they can be read down by date
