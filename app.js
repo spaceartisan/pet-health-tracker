@@ -2652,6 +2652,7 @@
   function addPetFromSidebar() {
     var name = $('pName').value.trim();
     if (!name) return toast('Please enter a name');
+    if (state.pets.length >= VAULT_LIMIT_PETS) return toast('You can have up to ' + VAULT_LIMIT_PETS + ' pets');
     var pet = {
       id: uid(),
       name: name,
@@ -2695,6 +2696,7 @@
     $('mSave').addEventListener('click', function () {
       var name = $('mName').value.trim();
       if (!name) return toast('Please enter a name');
+      if (state.pets.length >= VAULT_LIMIT_PETS) return toast('You can have up to ' + VAULT_LIMIT_PETS + ' pets');
       var pet = {
         id: uid(),
         name: name,
@@ -2991,10 +2993,9 @@
         (r.vomitKinds || []).join('; '), (r.stoolKinds || []).join('; '), r.vetType || '', r.playSize || '', (r.playKinds || []).join('; '),
         r.weight, r.mood, r.activity, r.cost, r.food, r.foodAmount, r.foodUnit, r.foodKcal, r.foodUnitSize, r.foodUnitSizeUnit, JSON.stringify(foodItemsOf(r)), meds, readingsText(p, r), r.note]);
     });
-    var csv = rows.map(function (row) {
-      return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
-    }).join('\n');
-    download('pet-health-tracker.csv', csv, 'text/csv');
+    // The byte-order mark tells Excel the file is UTF-8, so emoji and accents
+    // survive. The importer strips it.
+    download('pet-health-tracker.csv', '\uFEFF' + rows.map(csvLine).join('\n'), 'text/csv');
     toast('CSV exported');
   }
 
@@ -3045,9 +3046,16 @@
       return ms ? ms.name + '=' + x.v + (x.t ? ' @' + x.t : '') : '';
     }).filter(Boolean).join('; ');
   }
-  function csvLine(row) {
-    return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
+  // Spreadsheets run a cell starting with = + - or @ as a formula, so a note
+  // like "=HYPERLINK(...)" could do something when the file is opened. Such
+  // cells get a leading apostrophe, which spreadsheets hide and parseCsv
+  // removes again. Plain numbers (e.g. -3) are left alone.
+  function csvCell(x) {
+    var t = String(x == null ? '' : x);
+    if (/^[=+\-@\t\r]/.test(t) && !isFinite(Number(t))) t = "'" + t;
+    return '"' + t.replace(/"/g, '""') + '"';
   }
+  function csvLine(row) { return row.map(csvCell).join(','); }
 
   // Split CSV text into rows of fields (quotes, commas inside quotes, line
   // breaks inside quotes, Excel's byte-order mark, and ; as a separator).
@@ -3056,19 +3064,21 @@
     var first = text.split(/\r?\n/)[0] || '';
     var delim = first.indexOf(',') < 0 && first.indexOf(';') >= 0 ? ';' : ',';
     var rows = [], row = [], field = '', quoted = false;
+    // Undo csvCell's formula guard
+    function unguard(f) { return /^'[=+\-@\t\r]/.test(f) ? f.slice(1) : f; }
     for (var i = 0; i < text.length; i++) {
       var ch = text[i];
       if (quoted) {
         if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else quoted = false; }
         else field += ch;
       } else if (ch === '"') quoted = true;
-      else if (ch === delim) { row.push(field); field = ''; }
+      else if (ch === delim) { row.push(unguard(field)); field = ''; }
       else if (ch === '\n' || ch === '\r') {
         if (ch === '\r' && text[i + 1] === '\n') i++;
-        row.push(field); rows.push(row); row = []; field = '';
+        row.push(unguard(field)); rows.push(row); row = []; field = '';
       } else field += ch;
     }
-    if (field !== '' || row.length) { row.push(field); rows.push(row); }
+    if (field !== '' || row.length) { row.push(unguard(field)); rows.push(row); }
     return rows;
   }
 
@@ -3300,7 +3310,9 @@
     });
     // Stay within what the cloud vault can hold
     var total = state.records.length + plan.adds.length;
-    if (total > 5000) plan.error = 'This would bring the vault to ' + total.toLocaleString() + ' logs; the limit is 5,000.';
+    var petTotal = state.pets.length + plan.newPets.filter(function (p) { return plan.adds.some(function (r) { return r.petId === p.id; }); }).length;
+    if (total > VAULT_LIMIT_LOGS) plan.error = 'This would bring the vault to ' + total.toLocaleString() + ' logs; the limit is ' + VAULT_LIMIT_LOGS.toLocaleString() + '.';
+    else if (petTotal > VAULT_LIMIT_PETS) plan.error = 'This would bring you to ' + petTotal + ' pets; the limit is ' + VAULT_LIMIT_PETS + '.';
     else if (vaultUsage(state.pets.concat(plan.newPets), state.records.concat(plan.adds)).byBytes > 0.97) {
       plan.error = 'This would make the vault too large to sync (about 1 MB is the limit). Try importing fewer rows.';
     }
@@ -3377,11 +3389,22 @@
         if (!data || !Array.isArray(data.pets) || !Array.isArray(data.records)) {
           throw new Error('Invalid format');
         }
+        var seenBefore = newerDataSeen;
+        var restored = normalizeState(data);
+        var restoredNewer = newerDataSeen;
+        newerDataSeen = seenBefore; // only counts once the restore is confirmed
+        var tooBig = syncCode && vaultTooBig(restored.pets, restored.records);
+        if (tooBig) {
+          toast('This backup is too big for your cloud vault (' + tooBig + ')');
+          $('fileInput').value = '';
+          return;
+        }
         if (!confirm('Restoring replaces ALL pets and logs on this device' + (syncCode ? ', and in your synced vault on every device' : '') + ', with the backup.\n\nTo add logs instead, use "Add logs from a spreadsheet". Continue?')) {
           $('fileInput').value = '';
           return;
         }
-        state = normalizeState(data);
+        state = restored;
+        if (restoredNewer) newerDataSeen = true;
         activePetId = state.pets[0] ? state.pets[0].id : null;
         save();
         render();
@@ -4370,6 +4393,7 @@
   // a log without a tags list is treated as the pre-2026 format.
   var VAULT_LIMIT_BYTES = 1048576; // Firestore's maximum document size (1 MiB)
   var VAULT_LIMIT_LOGS = 5000;     // records.size() limit in firestore.rules
+  var VAULT_LIMIT_PETS = 50;       // pets.size() limit in firestore.rules
   function isEmptyValue(v) { return v === '' || v == null || v === false || (Array.isArray(v) && !v.length); }
   function compactRecord(r) {
     var out = {};
@@ -4413,6 +4437,15 @@
     var byBytes = bytes / VAULT_LIMIT_BYTES, byLogs = records.length / VAULT_LIMIT_LOGS;
     return { bytes: bytes, logs: records.length, byBytes: byBytes, byLogs: byLogs, used: Math.max(byBytes, byLogs) };
   }
+  // Why the cloud would refuse these pets and logs for size, or '' if it wouldn't.
+  // The rules answer an oversized save with the same "permission denied" as an
+  // out-of-date app, so it's checked here instead of being sent and refused.
+  function vaultTooBig(pets, records) {
+    if (pets.length > VAULT_LIMIT_PETS) return pets.length + ' pets; the limit is ' + VAULT_LIMIT_PETS;
+    if (records.length > VAULT_LIMIT_LOGS) return records.length.toLocaleString() + ' logs; the limit is ' + VAULT_LIMIT_LOGS.toLocaleString();
+    if (vaultUsage(pets, records).byBytes > 1) return 'more than 1 MB of data';
+    return '';
+  }
   function warnIfNearlyFull() {
     if (warnedFull || !syncCode) return;
     var u = vaultUsage(state.pets, state.records);
@@ -4428,6 +4461,12 @@
     try { localStorage.setItem(PENDING_KEY, '1'); } catch (e) {}
     if (!cloudReady) return; // sent once the latest cloud copy has arrived
     if (cloudBlocked) return; // kept on this device and merged in after a reload
+    var tooBig = vaultTooBig(state.pets, state.records);
+    if (tooBig) {
+      // Kept on this device (and marked unsynced) until enough is removed
+      reportSyncError({ code: 'resource-exhausted', detail: tooBig });
+      return;
+    }
     var mySeq = ++writeSeq;
     // A copy of what's being sent. If the cloud refuses it, Firestore rolls
     // this device's view back to the server's copy; this puts the changes back.
@@ -4580,7 +4619,7 @@
       showUpdateNotice('Your changes are saved on this device but couldn\'t sync. Reload to get the latest version of the app.');
       checkForUpdate(true);
     } else if (code === 'invalid-argument' || code === 'resource-exhausted') {
-      toast('Cloud vault is full — your data is still saved on this device');
+      toast('Cloud vault is full' + (err.detail ? ' (' + err.detail + ')' : '') + ' — your data is still saved on this device');
     } else {
       toast('Cloud sync failed — your data is still saved on this device');
     }
@@ -4656,7 +4695,7 @@
         if (!confirm('Disconnect cloud sync on this device? Your local data is not deleted.')) return;
         stopSync();
         syncCode = null;
-        localStorage.removeItem(SYNC_CODE_KEY);
+        try { localStorage.removeItem(SYNC_CODE_KEY); } catch (e) {}
         try { localStorage.removeItem(PENDING_KEY); } catch (e) {}
         renderAuthBtn();
         closeModal();
@@ -4665,7 +4704,7 @@
     } else {
       modalBody.innerHTML =
         '<p style="font-size:13px;color:var(--ink-2);margin:0 0 16px">Sync your data across devices — no account needed. Save your code somewhere safe; it\'s the only way to access your data from another device.</p>' +
-        '<label class="field" style="margin-bottom:12px">Email (optional — stored with your vault so you can look up your code later)<input type="email" id="msEmail" placeholder="you@example.com" autocomplete="email"></label>' +
+        '<label class="field" style="margin-bottom:12px">Email (optional — saved with your vault, and readable by anyone with the code)<input type="email" id="msEmail" placeholder="you@example.com" autocomplete="email"></label>' +
         '<button id="msGenerate" class="sage" type="button" style="width:100%;margin-bottom:16px">Generate a new code</button>' +
         '<p style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px">Already have a code?</p>' +
         '<div style="display:flex;gap:8px">' +
@@ -4685,7 +4724,7 @@
           render();
         }
         syncCode = code;
-        localStorage.setItem(SYNC_CODE_KEY, code);
+        storageSet(SYNC_CODE_KEY, code);
         var doc = Object.assign({ pets: state.pets, records: cloudRecords(state.records), _email: email, _createdAt: new Date().toISOString() }, writeStamp());
         db.collection('vaults').doc(code).set(doc).catch(reportSyncError);
         startSync(true); // this device's copy is the vault's starting point
@@ -4715,7 +4754,7 @@
             'To keep this device\'s data, cancel and use Export JSON first.'
           )) return;
           syncCode = entered;
-          localStorage.setItem(SYNC_CODE_KEY, entered);
+          storageSet(SYNC_CODE_KEY, entered);
           try { localStorage.removeItem(PENDING_KEY); } catch (e) {}
           state = remote;
           writeLocal();
@@ -4745,7 +4784,7 @@
     }
   }
   function genCode() {
-    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars, no ambiguous 0/O/1/I/L
+    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars, no ambiguous 0/O/1/I
     var arr = new Uint8Array(8);
     crypto.getRandomValues(arr);
     return Array.from(arr).map(function (b) { return chars[b % 32]; }).join('');
@@ -4787,6 +4826,9 @@
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[m];
     });
   }
+  // localStorage can throw (storage blocked, some private modes). These never do.
+  function storageGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function storageSet(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
   var toastT;
   function toast(msg) {
     var t = $('toast');
@@ -4815,7 +4857,7 @@
   // bugs in the past.
   function init() {
     isMobileLayout = window.matchMedia('(max-width: 720px)').matches;
-    syncCode = localStorage.getItem(SYNC_CODE_KEY) || null;
+    syncCode = storageGet(SYNC_CODE_KEY) || null;
     try {
       firebase.initializeApp({
         apiKey: 'AIzaSyBcKEqOQT5LbxdZwIk9JoIxEU0retR5Yew',
@@ -4914,7 +4956,7 @@
     applyMobileTab(); // default tab on mobile
     // Only show the demo pet on a genuine first visit. Never on a device linked to
     // a vault, and never again after the user deletes their last pet.
-    firstVisit = localStorage.getItem(STORAGE_KEY) === null;
+    firstVisit = storageGet(STORAGE_KEY) === null;
     if (firstVisit && !syncCode) seed();
     activePetId = state.pets[0] ? state.pets[0].id : null;
     renderAuthBtn();

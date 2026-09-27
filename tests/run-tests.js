@@ -1263,7 +1263,7 @@ async function bulkImport() {
   check('template has the columns', /^"pet","date","lb","oz","medications","tags","symptoms","vomit","stool","vet type","play size","play"/.test(template), template.slice(0, 80));
   A.click('modalClose');
   await importCsv(A, template);
-  check('importing the untouched template adds nothing', /Nothing new to add/.test(preview(A)) && /7 example rows/.test(preview(A)) && !A.$('impAdd'), preview(A));
+  check('importing the untouched template adds nothing', /Nothing new to add/.test(preview(A)) && /8 example rows/.test(preview(A)) && !A.$('impAdd'), preview(A));
   A.click('impCancel');
 
   // The main import
@@ -1327,8 +1327,12 @@ async function bulkImport() {
   A.click('impCancel');
 
   // Export CSV, then import it: everything is already there
+  A.addLog('=HYPERLINK("http://x","click")'); await wait();
   A.click('exportCsvBtn'); await wait();
   const exported = await readBlob(A, A.downloads[A.downloads.length - 1]);
+  const head = await new Promise((res) => { const fr = new A.w.FileReader(); fr.onload = () => res([...new Uint8Array(fr.result).slice(0, 3)]); fr.readAsArrayBuffer(A.downloads[A.downloads.length - 1]); });
+  check('Export CSV starts with a byte-order mark, for Excel', head.join() === '239,187,191', head);
+  check('Export CSV keeps notes from running as formulas', exported.includes('"\'=HYPERLINK(""http://x"",""click"")"') && !/,"=HYPERLINK/.test(exported));
   await importCsv(A, exported);
   const all = A.state().records.length;
   check('re-importing Export CSV finds every log already there', /Nothing new to add/.test(preview(A)) && new RegExp(all + ' rows are already in the app').test(preview(A)), preview(A).slice(0, 160));
@@ -1351,6 +1355,16 @@ async function bulkImport() {
   for (let i = 0; i < 10; i++) rows.push('Pepper,2026-09-20,new ' + i);
   await importCsv(A, rows.join('\n'));
   check('refuses to go past 5,000 logs', /the limit is 5,000/.test(preview(A)) && !A.$('impAdd'), preview(A));
+  A.close();
+
+  // Pet limit
+  const many = vault(CODE);
+  for (let i = many.pets.length; i < 50; i++) many.pets.push({ id: 'pp' + i, name: 'Pet ' + i, icon: '🐱', species: 'Cat' });
+  resetServer({ [CODE]: many });
+  A = openApp(makeClient('c'), linked(CODE, many));
+  await settle();
+  await importCsv(A, 'pet,date,note\nBrand New,2026-09-20,hi');
+  check('refuses to go past 50 pets', /the limit is 50/.test(preview(A)) && !A.$('impAdd'), preview(A));
   A.close();
 }
 
@@ -1604,7 +1618,7 @@ async function vetSummaryV4() {
   check('weekly medicine: about once a week, no missed days', /4 of 27 days/.test(medRow('FortiFlora').textContent) && /About once a week/.test(medRow('FortiFlora').textContent) && !/[Mm]issed/.test(medRow('FortiFlora').textContent), medRow('FortiFlora').textContent);
   check('occasional medicine: less than once a week', /Less than once a week/.test(medRow('Cerenia').textContent), medRow('Cerenia').textContent);
   const foodRows = [...rep().querySelectorAll('section')].find((s) => s.querySelector('h2').textContent === 'Food');
-  check('food section lists each food in order', foodRows && /Science Diet/.test(foodRows.textContent) && foodRows.textContent.indexOf('Science Diet') < foodRows.textContent.indexOf('Bland diet') && /change of food/.test(foodRows.textContent));
+  check('food section lists each food in order', foodRows && /Science Diet/.test(foodRows.textContent) && foodRows.textContent.indexOf('Science Diet') < foodRows.textContent.indexOf('Bland diet') && /Days logged/.test(foodRows.textContent), foodRows && foodRows.textContent);
   const moods = data.records.filter((r) => r.petId === 'p-pepper' && r.date >= '2026-06-27' && r.mood !== '' && r.mood != null).map((r) => Number(r.mood));
   const avg = Number((moods.reduce((a, b) => a + b, 0) / moods.length).toFixed(1)).toString();
   check('mood: average and lowest', new RegExp('Average ' + avg.replace('.', '\\.') + ' of 5 over ' + moods.length + ' ratings').test(text()) && /Lowest 2 \(Sep 17\)/.test(text()), [avg, moods.length]);
@@ -1620,7 +1634,7 @@ async function vetSummaryV4() {
   tick('medicine'); tick('food');
   const titles = [...rep().querySelectorAll('.vr-chart title')].map((x) => x.textContent);
   check('medicine changes marked', titles.some((x) => /FortiFlora started/.test(x)) && titles.some((x) => /Cerenia started/.test(x)), titles);
-  check('food changes marked', titles.some((x) => /Changed to Bland diet/.test(x)), titles);
+  check('food changes marked', titles.some((x) => /Food: Bland diet/.test(x)), titles);
   check('choices remembered', JSON.parse(A.storage()['petHealth.vetMarks']).medicine === true);
   tick('diarrhea');
   check('diarrhea marked', [...rep().querySelectorAll('.vr-chart text')].some((x) => x.textContent === 'Diarrhea'));
@@ -1697,6 +1711,21 @@ async function storage() {
   check('...only once per session', warnings() === n);
   A.click('authBtn');
   check('the meter shows it getting full', A.d.querySelector('.storage-meter.full') && /Getting full/.test(A.d.querySelector('.storage-meter').textContent));
+  A.close();
+
+  // Full: saves stay on this device, and it says the vault is full, not that
+  // the app is out of date (the rules refuse both the same way)
+  const full = vault(CODE);
+  for (let i = full.records.length; i < 5000; i++) full.records.push({ id: 'f' + i, petId: 'p-pepper', date: '2026-01-01', tags: ['symptom'], v: DATA_VERSION });
+  resetServer({ [CODE]: full });
+  A = openApp(makeClient('d'), linked(CODE, full));
+  await settle();
+  const refusedBefore = server.rejected;
+  A.addLog('over the limit'); await settle();
+  check('a full vault is reported as full', A.log.toasts.some((t) => /Cloud vault is full \(5,001 logs; the limit is 5,000\)/.test(t)), A.log.toasts);
+  check('...not as an out-of-date app', A.$('updateBanner').hidden);
+  check('...without sending a save the cloud would refuse', server.rejected === refusedBefore && server.docs[CODE].records.length === 5000);
+  check('...and the log is kept on this device, marked unsynced', A.state().records.length === 5001 && A.storage()['petHealth.unsyncedChanges'] === '1');
   A.close();
 }
 

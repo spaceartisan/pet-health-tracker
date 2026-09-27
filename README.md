@@ -45,7 +45,7 @@ The sync code is the only credential — there is no account or password. Anyone
 
 ## Firebase Setup (self-hosting)
 
-If you fork this project, replace the Firebase config in `index.html` with your own project's credentials, and set the Firestore security rules from `firestore.rules` in this repo (Firebase Console → Firestore Database → Rules → paste → Publish):
+If you fork this project, replace the Firebase config in `init()` at the end of `app.js` with your own project's credentials, and set the Firestore security rules from `firestore.rules` in this repo (Firebase Console → Firestore Database → Rules → paste → Publish):
 
 ```
 rules_version = '2';
@@ -127,6 +127,7 @@ If you add a new top-level field to the saved data, add it to the `hasOnly([...]
 | `icons/` | Home-screen and maskable PWA icons |
 | `firestore.rules` | A copy of the Firebase security rules (keep it matching the console) |
 | `tests/` | Automated tests; see `tests/README.md` |
+| `.gitignore` | Keeps `tests/node_modules` out of git |
 
 **Start-up code goes in `init()`**, at the end of `app.js`. It's called on the last line, after every setting and function above it has been defined. Don't add loose statements that run code elsewhere in the file: running code before a setting further down had its value caused several bugs.
 
@@ -136,11 +137,11 @@ Every save carries the app's version (`_v`) and a new write stamp (`_w`). The ru
 
 **Every update:** in `index.html`, bump the `?v=` number on both `styles.css?v=…` and `app.js?v=…` (e.g. `5.0` → `5.1`). Also bump `SHELL_CACHE` and the matching `styles.css?v=…` / `app.js?v=…` entries in `sw.js`. Browsers then fetch the new files together instead of mixing a new page with an old cached script. The tests check the two numbers match.
 
-**Most updates** (fixes, new features that don't change saved data): bump `?v=`, run the tests, push. Nothing else to change.
+**Most updates** (fixes, new features that don't change saved data): bump `?v=`, run the tests (`cd tests && npm test`), push. Nothing else to change.
 
 **Updates that older copies must not save alongside** (e.g. a change to how logs are stored):
 
-1. In `index.html`, bump `DATA_VERSION`. Set `"version"` in `version.json` to the same number.
+1. At the top of `app.js`, bump `DATA_VERSION`. Set `"version"` in `version.json` to the same number.
 2. Push, and wait for the new version to be live on GitHub Pages.
 3. In the Firestore rules, set `minVersion()` to the same number and Publish.
 
@@ -156,7 +157,12 @@ python -m http.server 8080
 # then open http://localhost:8080
 ```
 
+Then run the tests from the `tests` folder (`npm install` once, then `npm test`). See `tests/README.md`.
 
-### Structured food intake and quick foods (data v6)
+## Cloud vault limits
 
-Food logs can optionally record an amount and unit (can, pouch, cup, serving, piece, g, oz, kg, or lb). Each pet can keep up to 30 reusable food presets with a default amount/unit, optional package net weight, and an optional calorie declaration such as 90 kcal per can, 110 kcal per 100 g, or 3,700 kcal per kg. The app stores the calculated kcal on the log so historical intake does not change if a preset is edited later. Package weight enables conversions between a can/pouch and mass units. Legacy food-name-only logs remain valid.
+A synced vault holds up to 50 pets, 5,000 logs and about 1 MB of data (Firestore's document size limit). The app checks these before saving: adding a 51st pet or importing past a limit is refused with a message, and if the vault fills up from everyday logging, new logs stay on the device (marked unsynced) and the app says the vault is full. **Cloud sync** shows how full the vault is.
+
+## Food logging
+
+Food logs can optionally record an amount and unit (can, pouch, cup, serving, piece, g, oz, kg, or lb). Each pet can keep up to 30 reusable food presets with a default amount/unit, optional package net weight, and an optional calorie declaration such as 90 kcal per can, 110 kcal per 100 g, or 3,700 kcal per kg. The app stores the calculated kcal on the log so historical intake does not change if a preset is edited later. Package weight enables conversions between a can/pouch and mass units. Legacy food-name-only logs remain valid. Since data v7 one log can hold several foods, each with its own amount and calories.
