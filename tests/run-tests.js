@@ -1471,7 +1471,7 @@ async function urination() {
   tag('urine').click(); chip('Normal').click();
   A.addLog(''); await settle();
   const row = d.querySelector('.record[data-id="' + r.id + '"]').closest('.ev-row');
-  check('two urinations on one day: one row, one chip each', row && /Urination ×2/.test(row.textContent) && row.querySelectorAll('.ev-chip').length === 2, row && row.textContent);
+  check('two urinations on one day: one row with the count, a chip for each kind', row && /^Urination2/.test(row.textContent) && row.querySelectorAll('.ev-chip').length === 2, row && row.textContent);
   const cw = A.chart('urine-weekly');
   const labels = cw ? cw.data.datasets.map((x) => x.label) : [];
   check('Urination (weekly) chart stacks by label', ['Normal', 'Straining', 'Small'].every((x) => labels.includes(x)), labels);
