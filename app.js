@@ -332,8 +332,9 @@
         '</div>';
     }
     // Events logged on their own (stool, urination, vomit, symptoms) share one
-    // card per day: a row per type, "Stool ×4", then one small chip per time
-    // it happened (its labels and time). Tap a chip to edit it, × to delete it.
+    // card per day: a row per type with its count, then one chip per kind of
+    // entry ("Normal ×2", "Hard"). Tap a chip to edit its latest entry; × removes
+    // one entry. Each event is still stored as its own log.
     var EVENT_TAGS = ['stool', 'urine', 'vomit', 'symptom'];
     function eventOnly(r) {
       return r.tags.length === 1 && EVENT_TAGS.indexOf(r.tags[0]) >= 0 && !has(r.weight) && !has(r.mood) &&
@@ -343,13 +344,21 @@
       var kind = r.tags[0] === 'symptom' ? null : LABEL_KINDS[r.tags[0]];
       return (kind ? r[kind.logKey] : r.symptoms) || [];
     }
-    function chip(r) {
-      var t = r.loggedAt ? timeOf(r.loggedAt) : '';
-      var what = labelsOf(r).join(', ') || 'No details';
-      return '<span class="record ev-chip" data-id="' + esc(r.id) + '">' +
-        '<button type="button" data-action="edit" title="Edit' + (r.note ? ': ' + esc(r.note) : '') + '">' + esc(what) +
-          (t ? ' <small>' + esc(t) + '</small>' : '') + (r.note ? ' <small>✎</small>' : '') + '</button>' +
-        '<button type="button" data-action="delete" aria-label="Delete this ' + esc(label(r.tags[0]).toLowerCase()) + ' log">×</button></span>';
+    function chips(list) {
+      // Same labels, same chip; list is newest first, so the chip edits the latest
+      var byText = {}, order = [];
+      list.forEach(function (r) {
+        var text = labelsOf(r).join(', ') || 'No details';
+        if (!byText[text]) { byText[text] = []; order.push(text); }
+        byText[text].push(r);
+      });
+      return order.map(function (text) {
+        var logs = byText[text], r = logs[0];
+        return '<span class="record ev-chip" data-id="' + esc(r.id) + '">' +
+          '<button type="button" data-action="edit" title="Edit">' + esc(text) +
+            (logs.length > 1 ? '<b>×' + logs.length + '</b>' : '') + '</button>' +
+          '<button type="button" data-action="delete" aria-label="Delete one ' + esc(text) + ' ' + esc(label(r.tags[0]).toLowerCase()) + ' log">×</button></span>';
+      }).join('');
     }
     var byDay = {};
     rs.forEach(function (r) { if (eventOnly(r)) (byDay[r.date] = byDay[r.date] || []).push(r); });
@@ -358,17 +367,18 @@
       if (!eventOnly(r)) return card(r);
       if (drawn[r.date]) return '';
       drawn[r.date] = true;
-      var day = byDay[r.date].slice().sort(function (x, y) { return String(x.loggedAt || '').localeCompare(String(y.loggedAt || '')); });
+      var day = byDay[r.date];
       var notes = day.filter(function (x) { return x.note; });
       return '<div class="record-group">' +
         '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
+        '<div class="ev-rows">' +
         EVENT_TAGS.filter(function (tag) { return day.some(function (x) { return x.tags[0] === tag; }); }).map(function (tag) {
           var list = day.filter(function (x) { return x.tags[0] === tag; });
-          return '<div class="ev-row"><span class="type-pill ' + esc(tag) + '">' + esc(label(tag)) + (list.length > 1 ? ' ×' + list.length : '') + '</span>' +
-            list.map(chip).join('') + '</div>';
-        }).join('') +
+          return '<div class="ev-row"><span class="type-pill ' + esc(tag) + '">' + esc(label(tag)) + '</span>' +
+            '<span class="ev-count">' + list.length + '</span><div class="ev-chips">' + chips(list) + '</div></div>';
+        }).join('') + '</div>' +
         (notes.length ? '<div class="note">' + notes.map(function (x) {
-          return esc(label(x.tags[0])) + (x.loggedAt ? ' ' + esc(timeOf(x.loggedAt)) : '') + ': ' + esc(x.note);
+          return '<b>' + esc(label(x.tags[0])) + (labelsOf(x).length ? ' · ' + esc(labelsOf(x).join(', ')) : '') + ':</b> ' + esc(x.note);
         }).join('<br>') + '</div>' : '') +
       '</div>';
     }).join('');
