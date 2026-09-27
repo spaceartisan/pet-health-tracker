@@ -1481,31 +1481,33 @@ async function foodMoodRoutine() {
   const B = openApp(makeClient('laptop'), linked(CODE, vault(CODE)));
   await settle();
   const pepper = () => A.state().pets.find((p) => p.id === 'p-pepper');
-  A.$('rFood').value = 'Science Diet';
+  const formFood = () => A.d.querySelector('#foodRows .food-row');
+  A.type(formFood().querySelector('.food-name-input'), 'Science Diet');
   A.click('starFood'); A.click('starMood'); await settle();
   const food = (pepper().routine || []).find((it) => it.kind === 'food');
-  check('★ on Food adds it with what\'s typed as the default', food && food.note === 'Science Diet', pepper().routine);
+  check('★ on Food adds it with what\'s typed as the default', food && food.foods && food.foods[0].name === 'Science Diet', pepper().routine);
   check('★ on Mood adds it', (pepper().routine || []).some((it) => it.kind === 'mood'));
   check('stars show as on', A.$('starFood').getAttribute('aria-pressed') === 'true' && A.$('starMood').getAttribute('aria-pressed') === 'true');
   check('the routine syncs', (B.state().pets.find((p) => p.id === 'p-pepper').routine || []).length === 2);
   A.click('clearForm');
   check('checklist shows Food and Mood', !!A.row('Food') && !!A.row('Mood'));
-  check('food shows its default, ready to edit', A.row('Food').note && A.row('Food').note.value === 'Science Diet');
+  const routineFoodName = () => A.row('Food').el.querySelector('[data-rfood-name]');
+  check('food shows its default, ready to edit', routineFoodName() && routineFoodName().value === 'Science Diet');
   check('mood has 1–5 buttons', A.row('Mood').el.querySelectorAll('[data-mood]').length === 5);
   A.row('Mood').el.querySelector('[data-mood="4"]').click(); await settle();
   let logs = todays(A.state().records, 'p-pepper').filter((r) => r.routine);
   check('one tap logs mood', logs.length === 1 && logs[0].mood === 4);
   check('mood shows as done', A.row('Mood').done && /Mood 4\/5/.test(A.row('Mood').status.textContent), A.row('Mood').status.textContent);
-  A.type(A.row('Food').note, 'Science Diet, 1/3 cup');
-  check('"Make default" appears for an edited food', !A.row('Food').makeDefault.hidden);
+  A.type(routineFoodName(), 'Science Diet Adult');
+  check('food has a Make default control', !!A.row('Food').el.querySelector('[data-rfood-default]'));
   A.row('Food').log.click(); await settle();
   logs = todays(A.state().records, 'p-pepper').filter((r) => r.routine);
-  check('food goes into the same routine log', logs.length === 1 && logs[0].food === 'Science Diet, 1/3 cup' && logs[0].mood === 4, logs);
-  check('...without changing the default', pepper().routine.find((it) => it.kind === 'food').note === 'Science Diet');
-  check('the other device sees it', todays(B.state().records, 'p-pepper').some((r) => r.food === 'Science Diet, 1/3 cup'));
+  check('food goes into the same routine log', logs.length === 1 && logs[0].food === 'Science Diet Adult' && logs[0].foodItems.length === 1 && logs[0].mood === 4, logs);
+  check('...without changing the default', pepper().routine.find((it) => it.kind === 'food').foods[0].name === 'Science Diet');
+  check('the other device sees it', todays(B.state().records, 'p-pepper').some((r) => r.food === 'Science Diet Adult' && r.foodItems && r.foodItems.length === 1));
   A.row('Mood').undo.click(); await settle();
   logs = todays(A.state().records, 'p-pepper').filter((r) => r.routine);
-  check('Undo clears the mood only', logs[0].mood === '' && logs[0].food === 'Science Diet, 1/3 cup');
+  check('Undo clears the mood only', logs[0].mood === '' && logs[0].food === 'Science Diet Adult');
   const meds = [...A.d.querySelectorAll('#medOptions option')].map((o) => o.value);
   check('medicine suggestions don\'t list food or mood items', !meds.includes('undefined') && !meds.includes(''), meds.slice(0, 5));
   let asked = '';
@@ -1517,9 +1519,9 @@ async function foodMoodRoutine() {
 }
 
 // =====================================================================
-// STRUCTURED FOOD INTAKE + QUICK FOODS (version 6)
+// STRUCTURED FOOD INTAKE + QUICK FOODS + TRENDS (version 7)
 // =====================================================================
-async function foodAmountsV6() {
+async function foodAmountsV7() {
   resetServer({ [CODE]: vault(CODE) });
   const A = openApp(makeClient('phone'), linked(CODE, vault(CODE)));
   await settle();
@@ -1540,17 +1542,37 @@ async function foodAmountsV6() {
   const quick = [...A.d.querySelectorAll('#foodQuick [data-food-quick]')].find((b) => b.textContent === 'Fancy Feast Chicken');
   check('saved food appears as a quick choice', !!quick);
   quick.click();
-  check('quick choice fills its defaults', A.$('rFood').value === 'Fancy Feast Chicken' && A.$('rFoodAmount').value === '1' && A.$('rFoodUnit').value === 'can');
-  A.type(A.$('rFoodAmount'), '1.35');
-  check('calorie preview uses the configured kcal per can', /121\.5 kcal eaten/.test(A.$('foodKcalPreview').textContent), A.$('foodKcalPreview').textContent);
+  let rows = A.d.querySelectorAll('#foodRows .food-row');
+  check('quick choice fills its defaults', rows[0].querySelector('.food-name-input').value === 'Fancy Feast Chicken' && rows[0].querySelector('.food-amount-input').value === '1' && rows[0].querySelector('.food-unit-select').value === 'can');
+  A.type(rows[0].querySelector('.food-amount-input'), '1.35');
+  check('calorie preview uses the configured kcal per can', /121\.5 kcal eaten/.test(rows[0].querySelector('.food-row-preview').textContent), rows[0].querySelector('.food-row-preview').textContent);
+
+  A.click('addFoodRow');
+  rows = A.d.querySelectorAll('#foodRows .food-row');
+  A.type(rows[1].querySelector('.food-name-input'), 'Science Diet');
+  A.type(rows[1].querySelector('.food-amount-input'), '0.5');
+  rows[1].querySelector('.food-unit-select').value = 'can';
+  rows[1].querySelector('.food-unit-select').dispatchEvent(new A.w.Event('change', { bubbles: true }));
   A.submit(); await settle();
   const log = A.state().records.find((r) => r.date === TODAY && r.food === 'Fancy Feast Chicken');
-  check('food log stores structured amount and frozen calories', log && log.foodAmount === 1.35 && log.foodUnit === 'can' && log.foodUnitSize === 5 && log.foodUnitSizeUnit === 'oz' && log.foodKcal === 121.5, log);
+  check('one log stores multiple food lines', log && log.foodItems && log.foodItems.length === 2 && log.foodItems[1].name === 'Science Diet' && log.foodItems[1].amount === 0.5, log);
+  check('first food keeps structured amount and frozen calories', log && log.foodAmount === 1.35 && log.foodUnit === 'can' && log.foodUnitSize === 5 && log.foodUnitSizeUnit === 'oz' && log.foodKcal === 121.5, log);
   const card = log && A.d.querySelector('.record[data-id="' + log.id + '"]');
-  check('log shows can size, amount and calories', card && /1\.35 × 5 oz cans/.test(card.textContent) && /121\.5 kcal/.test(card.textContent), card && card.textContent);
+  check('log shows both foods, can size and calories', card && /1\.35 × 5 oz cans/.test(card.textContent) && /121\.5 kcal/.test(card.textContent) && /Science Diet/.test(card.textContent), card && card.textContent);
+
   A.editLog(log.id);
-  check('editing restores food amount and unit', A.$('rFoodAmount').value === '1.35' && A.$('rFoodUnit').value === 'can' && A.$('rFood').value === 'Fancy Feast Chicken');
+  rows = A.d.querySelectorAll('#foodRows .food-row');
+  check('editing restores all food lines', rows.length === 2 && rows[0].querySelector('.food-amount-input').value === '1.35' && rows[0].querySelector('.food-unit-select').value === 'can' && rows[1].querySelector('.food-name-input').value === 'Science Diet');
   A.click('clearForm');
+
+  A.$('foodChartUnit').value = 'can';
+  const cans = A.chart('food');
+  check('food trend stacks foods on one date axis', cans && cans.type === 'bar' && cans.data.datasets.length >= 2 && cans.data.datasets.every((d) => d.stack === 'food'), cans && cans.data.datasets.map((d) => d.label));
+  A.$('foodChartUnit').value = 'kcal';
+  A.$('foodChartUnit').dispatchEvent(new A.w.Event('change'));
+  const kc = A.w.__chart;
+  check('food trend can change the y axis to kcal', kc && kc.options.scales.y.title.text === 'kcal' && kc.data.datasets.some((d) => d.label === 'Fancy Feast Chicken'));
+  check('food kcal chart explains lines without calorie data', /without kcal omitted/.test(A.$('chartSummary').textContent), A.$('chartSummary').textContent);
   check('no script errors', A.log.errors.length === 0, A.log.errors);
   A.close();
 }
@@ -1848,7 +1870,7 @@ async function previousVersion() {
     await runGroup('Stool, vomit & vet type' + tag, stoolVomitVet);
     await runGroup('Add to last log' + tag, addToLastLog);
     await runGroup('Food & mood routine' + tag, foodMoodRoutine);
-    await runGroup('Food amounts & quick foods' + tag, foodAmountsV6);
+    await runGroup('Food amounts, multiple foods & food trends' + tag, foodAmountsV7);
     await runGroup('Vet summary v4' + tag, vetSummaryV4);
     await runGroup('Import v4 columns' + tag, importV4);
     await runGroup('Storage' + tag, storage);

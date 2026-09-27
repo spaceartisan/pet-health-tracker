@@ -19,7 +19,7 @@
   //   2. Push, and wait until the new version is live on GitHub Pages.
   //   3. Bump minVersion() in the Firestore rules to match, then Publish.
   // Updates that don't need this can be pushed without changing any of them.
-  var DATA_VERSION = 6; // 3: symptom/play labels. 4: Stool/vet labels. 5: custom measures. 6: structured food amounts + food presets
+  var DATA_VERSION = 7; // 3: symptom/play labels. 4: Stool/vet labels. 5: custom measures. 6: structured food amounts + food presets. 7: multiple foods per log + food trends
   var newerDataSeen = false;
   var updateNotice = '';   // message for the reload banner, if any
   var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
@@ -241,7 +241,7 @@
       if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
       if (has(r.activity)) bits.push(esc(r.activity) + ' min');
       if (has(r.cost) && Number(r.cost) > 0) bits.push('$' + Number(r.cost).toFixed(2));
-      if (r.food) bits.push(esc(foodLogText(r, rp)));
+      if (foodItemsOf(r).length) bits.push(esc(foodLogText(r, rp)));
       if (r.playSize) bits.push(esc(PLAY_SIZES[r.playSize] || r.playSize) + ' play');
       (r.playKinds || []).forEach(function (k) { bits.push(esc(k)); });
       (r.symptoms || []).forEach(function (k) { bits.push(esc(k)); });
@@ -354,11 +354,20 @@
     if (days > 1) return 'Last logged ' + days + ' days ago';
     return 'Last logged ' + formatDate(last);
   }
-  // The most recent food logged for a pet, as the food item's default
+  // The most recent food logged for a pet, as defaults for Daily Routine.
+  function lastFoodItems(petId) {
+    var best = null;
+    state.records.forEach(function (r) {
+      var items = foodItemsOf(r);
+      if (r.petId !== petId || !items.length) return;
+      var stamp = String(r.date || '') + '|' + String(r.loggedAt || '') + '|' + String(r.id || '');
+      if (!best || stamp > best.stamp) best = { stamp: stamp, items: items };
+    });
+    return best ? best.items.map(function (x) { return Object.assign({}, x); }) : [];
+  }
   function lastFood(petId) {
-    var f = '';
-    state.records.forEach(function (r) { if (r.petId === petId && r.food) f = r.food; });
-    return f;
+    var items = lastFoodItems(petId);
+    return items[0] ? items[0].name : '';
   }
 
   // ===== FOOD PRESETS / AMOUNTS =====
@@ -400,6 +409,47 @@
     if (!(f.kcalBasisAmount > 0)) f.kcalBasisAmount = 1;
     return f;
   }
+  function normalizeFoodItem(raw) {
+    raw = raw || {};
+    var x = {
+      name: String(raw.name == null ? (raw.food || '') : raw.name).trim().replace(/\s+/g, ' '),
+      amount: raw.amount === '' || raw.amount == null ? '' : Number(raw.amount),
+      unit: FOOD_UNITS[raw.unit] ? raw.unit : '',
+      kcal: raw.kcal === '' || raw.kcal == null ? '' : Number(raw.kcal),
+      presetId: raw.presetId ? String(raw.presetId) : '',
+      unitSize: raw.unitSize === '' || raw.unitSize == null ? '' : Number(raw.unitSize),
+      unitSizeUnit: FOOD_UNITS[raw.unitSizeUnit] && FOOD_UNITS[raw.unitSizeUnit].kind === 'mass' ? raw.unitSizeUnit : ''
+    };
+    if (x.amount !== '' && (!(x.amount > 0) || !isFinite(x.amount))) x.amount = '';
+    if (x.kcal !== '' && (!(x.kcal > 0) || !isFinite(x.kcal))) x.kcal = '';
+    if (x.unitSize !== '' && (!(x.unitSize > 0) || !isFinite(x.unitSize))) x.unitSize = '';
+    if (!x.unit && x.amount !== '') x.unit = 'can';
+    return x;
+  }
+  function foodItemsOf(record) {
+    if (!record) return [];
+    if (Array.isArray(record.foodItems) && record.foodItems.length) {
+      return record.foodItems.map(normalizeFoodItem).filter(function (x) { return x.name; });
+    }
+    if (!record.food) return [];
+    return [normalizeFoodItem({
+      name: record.food, amount: record.foodAmount, unit: record.foodUnit, kcal: record.foodKcal,
+      presetId: record.foodPresetId, unitSize: record.foodUnitSize, unitSizeUnit: record.foodUnitSizeUnit
+    })];
+  }
+  // Keep the original scalar food fields mirrored to the first food line. This
+  // lets older exports/copies keep seeing at least the first item while v7 uses
+  // `foodItems` as the canonical list.
+  function syncLegacyFoodFields(record) {
+    var first = Array.isArray(record.foodItems) && record.foodItems.length ? normalizeFoodItem(record.foodItems[0]) : null;
+    record.food = first ? first.name : '';
+    record.foodAmount = first ? first.amount : '';
+    record.foodUnit = first ? first.unit : '';
+    record.foodKcal = first ? first.kcal : '';
+    record.foodPresetId = first ? first.presetId : '';
+    record.foodUnitSize = first ? first.unitSize : '';
+    record.foodUnitSizeUnit = first ? first.unitSizeUnit : '';
+  }
   function foodPackageMassGrams(preset) {
     if (!preset || !(Number(preset.packageAmount) > 0)) return '';
     var u = FOOD_UNITS[preset.packageUnit];
@@ -414,7 +464,6 @@
     if (from.kind === 'mass' && to.kind === 'mass') return value * from.grams / to.grams;
     var packG = foodPackageMassGrams(preset);
     if (!(packG > 0)) return '';
-    // A configured can/pouch/serving can be converted to its net weight and back.
     if (from.kind === 'count' && fromUnit === preset.defaultUnit && to.kind === 'mass') return value * packG / to.grams;
     if (from.kind === 'mass' && to.kind === 'count' && toUnit === preset.defaultUnit) return value * from.grams / packG;
     return '';
@@ -428,86 +477,224 @@
   function foodPresetSummary(f) {
     var bits = [];
     if (Number(f.defaultAmount) > 0) bits.push(trimNum(f.defaultAmount, 3) + ' ' + foodUnitLabel(f.defaultUnit, f.defaultAmount) + ' default');
-    if (Number(f.packageAmount) > 0 && FOOD_UNITS[f.defaultUnit] && FOOD_UNITS[f.defaultUnit].kind === 'count') {
-      bits.push(trimNum(f.packageAmount, 3) + ' ' + f.packageUnit + ' each');
-    }
+    if (Number(f.packageAmount) > 0 && FOOD_UNITS[f.defaultUnit] && FOOD_UNITS[f.defaultUnit].kind === 'count') bits.push(trimNum(f.packageAmount, 3) + ' ' + f.packageUnit + ' each');
     if (Number(f.kcal) > 0) bits.push(trimNum(f.kcal, 2) + ' kcal / ' + trimNum(f.kcalBasisAmount || 1, 3) + ' ' + foodUnitLabel(f.kcalBasisUnit, f.kcalBasisAmount || 1));
     return bits.join(' · ');
   }
-  function foodAmountText(record, pet) {
-    if (!record || !(Number(record.foodAmount) > 0) || !record.foodUnit) return '';
-    var amount = Number(record.foodAmount);
-    var unit = record.foodUnit;
-    var preset = foodPresetById(pet, record.foodPresetId) || foodPresetForName(pet, record.food);
-    // A preset's package weight describes its default count unit (for example,
-    // a 5 oz can). Only borrow that live preset size when the logged count unit
-    // is the same; frozen size fields on older logs are always trusted.
-    var frozenPack = Number(record.foodUnitSize) > 0 && record.foodUnitSizeUnit;
-    var presetPack = preset && unit === preset.defaultUnit && Number(preset.packageAmount) > 0;
-    var packAmount = frozenPack ? Number(record.foodUnitSize) : (presetPack ? Number(preset.packageAmount) : '');
-    var packUnit = frozenPack ? record.foodUnitSizeUnit : (presetPack ? preset.packageUnit : '');
+  function foodItemPreset(pet, item) {
+    return foodPresetById(pet, item && item.presetId) || foodPresetForName(pet, item && item.name);
+  }
+  function foodItemConversionPreset(pet, item) {
+    var live = foodItemPreset(pet, item);
+    var out = live ? Object.assign({}, live) : { defaultUnit: item.unit, packageAmount: '', packageUnit: 'g' };
+    // Frozen package size wins for historical conversion.
+    if (Number(item.unitSize) > 0 && item.unitSizeUnit && FOOD_UNITS[item.unit] && FOOD_UNITS[item.unit].kind === 'count') {
+      out.defaultUnit = item.unit;
+      out.packageAmount = Number(item.unitSize);
+      out.packageUnit = item.unitSizeUnit;
+    }
+    return out;
+  }
+  function foodItemAmountText(item, pet) {
+    item = normalizeFoodItem(item);
+    if (!(Number(item.amount) > 0) || !item.unit) return '';
+    var amount = Number(item.amount), unit = item.unit;
+    var preset = foodItemConversionPreset(pet, item);
+    var packAmount = Number(item.unitSize) > 0 ? Number(item.unitSize) : (preset && unit === preset.defaultUnit && Number(preset.packageAmount) > 0 ? Number(preset.packageAmount) : '');
+    var packUnit = item.unitSizeUnit || (preset && unit === preset.defaultUnit ? preset.packageUnit : '');
     if (FOOD_UNITS[unit] && FOOD_UNITS[unit].kind === 'count' && packAmount && packUnit) {
       return trimNum(amount, 3) + ' × ' + trimNum(packAmount, 3) + ' ' + packUnit + ' ' + foodUnitLabel(unit, amount);
     }
     return trimNum(amount, 3) + ' ' + foodUnitLabel(unit, amount);
   }
-  function foodLogText(record, pet) {
-    if (!record || !record.food) return '';
-    var text = record.food;
-    var amt = foodAmountText(record, pet);
+  function foodAmountText(record, pet) {
+    return foodItemsOf(record).map(function (item) { return foodItemAmountText(item, pet); }).filter(Boolean).join(' + ');
+  }
+  function foodItemText(item, pet) {
+    item = normalizeFoodItem(item);
+    if (!item.name) return '';
+    var text = item.name, amt = foodItemAmountText(item, pet);
     if (amt) text += ' · ' + amt;
-    if (Number(record.foodKcal) > 0) text += ' · ' + trimNum(record.foodKcal, 1) + ' kcal';
+    if (Number(item.kcal) > 0) text += ' · ' + trimNum(item.kcal, 1) + ' kcal';
     return text;
   }
-  function currentFoodPreset() {
+  function foodLogText(record, pet) {
+    return foodItemsOf(record).map(function (item) { return foodItemText(item, pet); }).filter(Boolean).join(' + ');
+  }
+  function foodTotalKcal(record) {
+    var total = 0, found = false;
+    foodItemsOf(record).forEach(function (x) { if (Number(x.kcal) > 0) { total += Number(x.kcal); found = true; } });
+    return found ? Math.round(total * 100) / 100 : '';
+  }
+  function loggedFoodItem(pet, raw) {
+    var preserveNutrition = !!(raw && raw._preserveNutrition);
+    var item = normalizeFoodItem(raw);
+    if (!item.name) return item;
+    var fp = foodPresetById(pet, item.presetId) || foodPresetForName(pet, item.name);
+    if (fp) item.presetId = fp.id;
+    // Historical rows carry their frozen calorie/package values back through an
+    // edit unchanged. If the user changes food, amount or unit, the row clears
+    // _preserveNutrition and these values are recalculated from the live preset.
+    if (!preserveNutrition && Number(item.amount) > 0 && item.unit) {
+      item.kcal = '';
+      item.unitSize = '';
+      item.unitSizeUnit = '';
+      if (fp && Number(fp.packageAmount) > 0 && item.unit === fp.defaultUnit && FOOD_UNITS[item.unit] && FOOD_UNITS[item.unit].kind === 'count') {
+        item.unitSize = Number(fp.packageAmount);
+        item.unitSizeUnit = fp.packageUnit;
+      }
+      var kcal = fp ? foodKcalFor(fp, item.amount, item.unit) : '';
+      if (kcal !== '') item.kcal = kcal;
+    }
+    return item;
+  }
+  function setRecordFoodItems(record, items) {
+    record.foodItems = (items || []).map(normalizeFoodItem).filter(function (x) { return x.name; });
+    syncLegacyFoodFields(record);
+  }
+
+  // ----- Multi-line food entry in Add Log -----
+  function foodRowData(row) {
+    var raw = {
+      name: row.querySelector('.food-name-input').value,
+      amount: row.querySelector('.food-amount-input').value,
+      unit: row.querySelector('.food-unit-select').value,
+      presetId: row.querySelector('.food-preset-id').value,
+      kcal: row.querySelector('.food-frozen-kcal').value,
+      unitSize: row.querySelector('.food-frozen-unit-size').value,
+      unitSizeUnit: row.querySelector('.food-frozen-unit-size-unit').value
+    };
+    var out = normalizeFoodItem(raw);
+    if (row.getAttribute('data-preserve-nutrition') === '1') out._preserveNutrition = true;
+    return out;
+  }
+  function clearFoodRowFrozenNutrition(row) {
+    row.removeAttribute('data-preserve-nutrition');
+    row.querySelector('.food-frozen-kcal').value = '';
+    row.querySelector('.food-frozen-unit-size').value = '';
+    row.querySelector('.food-frozen-unit-size-unit').value = '';
+  }
+  function foodRowPreset(row) {
     var p = formPet();
     if (!p) return null;
-    return foodPresetById(p, $('rFoodPresetId').value) || foodPresetForName(p, $('rFood').value);
+    var d = foodRowData(row);
+    return foodPresetById(p, d.presetId) || foodPresetForName(p, d.name);
   }
-  function updateFoodPreview() {
-    if (!$ || !$('foodKcalPreview')) return;
-    var p = formPet();
-    var preset = currentFoodPreset();
-    var amount = Number($('rFoodAmount').value);
-    var unit = $('rFoodUnit').value;
-    var bits = [];
-    if (preset) {
-      if (Number(preset.packageAmount) > 0 && FOOD_UNITS[preset.defaultUnit] && FOOD_UNITS[preset.defaultUnit].kind === 'count') {
-        bits.push(trimNum(preset.packageAmount, 3) + ' ' + preset.packageUnit + ' per ' + FOOD_UNITS[preset.defaultUnit].one);
-      }
+  function updateFoodRowPreview(row) {
+    if (!row) return;
+    var preview = row.querySelector('.food-row-preview');
+    var d = foodRowData(row), preset = foodRowPreset(row), bits = [];
+    if (d._preserveNutrition) {
+      if (Number(d.unitSize) > 0 && d.unitSizeUnit && FOOD_UNITS[d.unit] && FOOD_UNITS[d.unit].kind === 'count') bits.push(trimNum(d.unitSize, 3) + ' ' + d.unitSizeUnit + ' per ' + FOOD_UNITS[d.unit].one + ' when logged');
+      if (Number(d.kcal) > 0) bits.push('<strong>' + esc(trimNum(d.kcal, 1)) + ' kcal eaten (saved with this log)</strong>');
+    } else if (preset) {
+      if (Number(preset.packageAmount) > 0 && FOOD_UNITS[preset.defaultUnit] && FOOD_UNITS[preset.defaultUnit].kind === 'count') bits.push(trimNum(preset.packageAmount, 3) + ' ' + preset.packageUnit + ' per ' + FOOD_UNITS[preset.defaultUnit].one);
       if (Number(preset.kcal) > 0) bits.push(trimNum(preset.kcal, 2) + ' kcal per ' + trimNum(preset.kcalBasisAmount || 1, 3) + ' ' + foodUnitLabel(preset.kcalBasisUnit, preset.kcalBasisAmount || 1));
-      var kcal = foodKcalFor(preset, amount, unit);
+      var kcal = foodKcalFor(preset, d.amount, d.unit);
       if (kcal !== '') bits.push('<strong>≈ ' + esc(trimNum(kcal, 1)) + ' kcal eaten</strong>');
-      else if (amount > 0 && Number(preset.kcal) > 0) bits.push('Calorie conversion needs matching units' + (foodPackageMassGrams(preset) ? '' : ' or a package weight'));
-    } else if ($('rFood').value.trim()) {
-      bits.push('Save this food under ⚙ Foods to enable one-tap defaults and calorie estimates.');
-    }
-    $('foodKcalPreview').innerHTML = bits.join(' · ');
+      else if (Number(d.amount) > 0 && Number(preset.kcal) > 0) bits.push('Calorie conversion needs matching units' + (foodPackageMassGrams(preset) ? '' : ' or a package weight'));
+    } else if (d.name) bits.push('Save this food under ⚙ Foods to enable one-tap defaults and calorie estimates.');
+    preview.innerHTML = bits.join(' · ');
+  }
+  function addFoodRow(item, focus) {
+    item = normalizeFoodItem(item || {});
+    var row = document.createElement('div');
+    row.className = 'food-row';
+    if (Number(item.kcal) > 0 || Number(item.unitSize) > 0) row.setAttribute('data-preserve-nutrition', '1');
+    row.innerHTML =
+      '<input type="hidden" class="food-preset-id" value="' + esc(item.presetId) + '">' +
+      '<input type="hidden" class="food-frozen-kcal" value="' + esc(item.kcal) + '">' +
+      '<input type="hidden" class="food-frozen-unit-size" value="' + esc(item.unitSize) + '">' +
+      '<input type="hidden" class="food-frozen-unit-size-unit" value="' + esc(item.unitSizeUnit) + '">' +
+      '<label class="field food-name">Food / brand<input class="food-name-input" list="foodOptions" placeholder="e.g. Fancy Feast Chicken" autocomplete="off" value="' + esc(item.name) + '"></label>' +
+      '<label class="field food-amount">Amount eaten<input class="food-amount-input" type="number" step="any" min="0" inputmode="decimal" placeholder="amount" value="' + esc(item.amount) + '"></label>' +
+      '<label class="field food-unit">Unit<select class="food-unit-select" aria-label="Food amount unit">' + foodUnitOptions(item.unit || 'can') + '</select></label>' +
+      '<button type="button" class="ghost remove-food" title="Remove food" aria-label="Remove food">✕</button>' +
+      '<div class="food-row-preview"></div>';
+    var nameEl = row.querySelector('.food-name-input');
+    var amountEl = row.querySelector('.food-amount-input');
+    var unitEl = row.querySelector('.food-unit-select');
+    var presetEl = row.querySelector('.food-preset-id');
+    nameEl.addEventListener('input', function () {
+      clearFoodRowFrozenNutrition(row);
+      var fp = foodPresetForName(formPet(), nameEl.value);
+      presetEl.value = fp ? fp.id : '';
+      updateFoodRowPreview(row); renderStars();
+    });
+    nameEl.addEventListener('change', function () {
+      var fp = foodPresetForName(formPet(), nameEl.value);
+      if (fp) applyFoodPresetToRow(row, fp, false); else updateFoodRowPreview(row);
+    });
+    amountEl.addEventListener('input', function () { clearFoodRowFrozenNutrition(row); updateFoodRowPreview(row); });
+    unitEl.addEventListener('change', function () { clearFoodRowFrozenNutrition(row); updateFoodRowPreview(row); });
+    row.querySelector('.remove-food').addEventListener('click', function () {
+      var rows = $('foodRows').querySelectorAll('.food-row');
+      if (rows.length === 1) {
+        nameEl.value = ''; amountEl.value = ''; presetEl.value = ''; unitEl.value = 'can'; updateFoodRowPreview(row);
+      } else row.remove();
+      renderStars();
+    });
+    $('foodRows').appendChild(row);
+    updateFoodRowPreview(row);
+    if (focus) nameEl.focus();
+    return row;
+  }
+  function renderFoodRows(items) {
+    $('foodRows').innerHTML = '';
+    var list = (items || []).map(normalizeFoodItem).filter(function (x) { return x.name || x.amount !== ''; });
+    if (!list.length) list = [{}];
+    list.forEach(function (x) { addFoodRow(x, false); });
+  }
+  function readFoodRows(validate) {
+    if (validate === undefined) validate = true;
+    var p = formPet(), out = [], problem = '';
+    $('foodRows').querySelectorAll('.food-row').forEach(function (row) {
+      if (problem) return;
+      var d = foodRowData(row);
+      if (!d.name && d.amount === '') return;
+      if (!d.name) { if (validate) problem = 'Enter the food name'; return; }
+      if (d.amount !== '' && (!(Number(d.amount) > 0) || !isFinite(Number(d.amount)))) { if (validate) problem = 'Check the food amount'; return; }
+      out.push(loggedFoodItem(p, d));
+    });
+    if (problem) { toast(problem); return null; }
+    return out;
+  }
+  function applyFoodPresetToRow(row, preset, useDefaultAmount) {
+    if (!row || !preset) return;
+    clearFoodRowFrozenNutrition(row);
+    row.querySelector('.food-preset-id').value = preset.id;
+    row.querySelector('.food-name-input').value = preset.name;
+    row.querySelector('.food-unit-select').value = preset.defaultUnit;
+    var amount = row.querySelector('.food-amount-input');
+    if (useDefaultAmount || !amount.value) amount.value = Number(preset.defaultAmount) > 0 ? trimNum(preset.defaultAmount, 3) : '';
+    updateFoodRowPreview(row); renderStars();
   }
   function applyFoodPresetToForm(preset, useDefaultAmount) {
     if (!preset) return;
-    $('rFoodPresetId').value = preset.id;
-    $('rFood').value = preset.name;
-    $('rFoodUnit').value = preset.defaultUnit;
-    if (useDefaultAmount || !$('rFoodAmount').value) $('rFoodAmount').value = Number(preset.defaultAmount) > 0 ? trimNum(preset.defaultAmount, 3) : '';
-    updateFoodPreview();
-    renderStars();
+    var target = null;
+    $('foodRows').querySelectorAll('.food-row').forEach(function (row) {
+      if (!target) {
+        var d = foodRowData(row);
+        if (!d.name && d.amount === '') target = row;
+      }
+    });
+    if (!target) target = addFoodRow({}, false);
+    applyFoodPresetToRow(target, preset, useDefaultAmount);
+    target.querySelector('.food-amount-input').focus();
+  }
+  function updateFoodPreview() {
+    if (!$ || !$('foodRows')) return;
+    $('foodRows').querySelectorAll('.food-row').forEach(updateFoodRowPreview);
   }
   function renderFoodQuick() {
     if (!$ || !$('foodQuick')) return;
-    var p = formPet();
-    var foods = petFoodPresets(p);
-    var box = $('foodQuick');
+    var p = formPet(), foods = petFoodPresets(p), box = $('foodQuick');
     box.hidden = !foods.length;
     box.innerHTML = foods.map(function (f) {
       return '<button class="chip" type="button" data-food-quick="' + esc(f.id) + '" title="' + esc(foodPresetSummary(f)) + '">' + esc(f.name) + '</button>';
     }).join('');
     box.querySelectorAll('[data-food-quick]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var fp = foodPresetById(formPet(), b.getAttribute('data-food-quick'));
-        applyFoodPresetToForm(fp, true);
-        $('rFoodAmount').focus();
-      });
+      b.addEventListener('click', function () { applyFoodPresetToForm(foodPresetById(formPet(), b.getAttribute('data-food-quick')), true); });
     });
   }
   function openFoodManager() {
@@ -580,13 +767,13 @@
       if ($('fpCancel')) $('fpCancel').addEventListener('click', function () { draw(null); });
       modalBody.querySelectorAll('[data-fp-edit]').forEach(function (b) { b.addEventListener('click', function () { draw(b.getAttribute('data-fp-edit')); }); });
       modalBody.querySelectorAll('[data-fp-use]').forEach(function (b) { b.addEventListener('click', function () {
-        var fp = foodPresetById(cur, b.getAttribute('data-fp-use')); closeModal(); applyFoodPresetToForm(fp, true); $('rFoodAmount').focus();
+        var fp = foodPresetById(cur, b.getAttribute('data-fp-use')); closeModal(); applyFoodPresetToForm(fp, true);
       }); });
       modalBody.querySelectorAll('[data-fp-delete]').forEach(function (b) { b.addEventListener('click', function () {
         var fp = foodPresetById(cur, b.getAttribute('data-fp-delete'));
         if (!fp || !confirm('Delete ' + fp.name + ' from quick foods? Existing logs stay unchanged.')) return;
         cur.foodPresets = petFoodPresets(cur).filter(function (x) { return x.id !== fp.id; });
-        (cur.routine || []).forEach(function (it) { if (it.foodPresetId === fp.id) delete it.foodPresetId; });
+        (cur.routine || []).forEach(function (it) { if (it.kind === 'food') { if (it.foodPresetId === fp.id) delete it.foodPresetId; (it.foods || []).forEach(function (x) { if (x.presetId === fp.id) x.presetId = ''; }); } });
         save(); render(); draw(null); toast('Food removed');
       }); });
     }
@@ -614,7 +801,12 @@
       if (!single && !name) return toast('Enter a medicine name first');
       var entry = item.kind === 'weight' ? { id: uid(), kind: 'weight' }
         : item.kind === 'mood' ? { id: uid(), kind: 'mood' }
-        : item.kind === 'food' ? { id: uid(), kind: 'food', note: String(item.note || '').trim() || lastFood(pet.id), foodPresetId: item.foodPresetId || '', foodAmount: item.foodAmount === '' || item.foodAmount == null ? '' : Number(item.foodAmount), foodUnit: FOOD_UNITS[item.foodUnit] ? item.foodUnit : 'can' }
+        : item.kind === 'food' ? (function () {
+            var foods = Array.isArray(item.foods) ? item.foods.map(normalizeFoodItem).filter(function (x) { return x.name; }) : [];
+            if (!foods.length && item.note) foods = [normalizeFoodItem({ name: item.note, amount: item.foodAmount, unit: item.foodUnit || 'can', presetId: item.foodPresetId })];
+            if (!foods.length) foods = lastFoodItems(pet.id).map(function (x) { return normalizeFoodItem({ name: x.name, amount: x.amount, unit: x.unit, presetId: x.presetId }); });
+            return { id: uid(), kind: 'food', foods: foods };
+          })()
         : { id: uid(), kind: 'medication', med: name, note: String(item.note || '').trim() || lastMedNote(state.records, pet.id, name) };
       pet.routine = (pet.routine || []).concat([entry]);
       delete pet.sample; // a demo pet with a routine is now the user's own
@@ -675,15 +867,13 @@
             }).join('') + '</div>'
           : '');
       list.querySelectorAll('[data-suggest]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          toggleRoutine(p, { kind: 'medication', med: suggestions[Number(b.getAttribute('data-suggest'))] });
-        });
+        b.addEventListener('click', function () { toggleRoutine(p, { kind: 'medication', med: suggestions[Number(b.getAttribute('data-suggest'))] }); });
       });
       return;
     }
 
-    // Remember which checklist field has the cursor, so a redraw (e.g. a cloud
-    // update arriving) can put it back exactly where it was.
+    // Remember which simple checklist field has the cursor, so a cloud redraw
+    // can put it back. Food uses its own multi-row draft below.
     var focus = null;
     var ae = document.activeElement;
     if (ae && list.contains(ae) && ae.getAttribute('data-draft')) {
@@ -695,9 +885,43 @@
       var k = draftKey(it, field);
       return Object.prototype.hasOwnProperty.call(routineDrafts, k) ? routineDrafts[k] : fallback;
     }
+    function foodDraftKey(it) { return draftKey(it, 'foods'); }
+    function savedFoodDefaults(it) {
+      var foods = Array.isArray(it.foods) ? it.foods.map(normalizeFoodItem).filter(function (x) { return x.name; }) : [];
+      if (!foods.length && it.note) foods = [normalizeFoodItem({ name: it.note, amount: it.foodAmount, unit: it.foodUnit || 'can', presetId: it.foodPresetId })];
+      if (!foods.length) foods = lastFoodItems(p.id).map(function (x) { return normalizeFoodItem({ name: x.name, amount: x.amount, unit: x.unit || 'can', presetId: x.presetId }); });
+      return foods;
+    }
+    function routineFoodDraft(it) {
+      var k = foodDraftKey(it);
+      if (Array.isArray(routineDrafts[k])) return routineDrafts[k];
+      var foods = savedFoodDefaults(it);
+      routineDrafts[k] = foods.length ? foods.map(function (x) { return Object.assign({}, x); }) : [normalizeFoodItem({ unit: 'can' })];
+      return routineDrafts[k];
+    }
+    function foodEditorHtml(it, i) {
+      var foods = routineFoodDraft(it);
+      var quick = petFoodPresets(p);
+      return '<div class="routine-food-editor" data-rfood-editor="' + i + '">' +
+        '<div class="routine-food-lines">' + foods.map(function (f, j) {
+          f = normalizeFoodItem(f);
+          return '<div class="routine-food-line" data-rfood-line="' + j + '">' +
+            '<input type="hidden" data-rfood-preset value="' + esc(f.presetId) + '">' +
+            '<input class="routine-food-name" list="foodOptions" data-rfood-name placeholder="Food / brand" aria-label="Food name" value="' + esc(f.name) + '">' +
+            '<input class="routine-food-amount" type="number" step="any" min="0" inputmode="decimal" data-rfood-amount placeholder="amount" aria-label="Food amount" value="' + esc(f.amount) + '">' +
+            '<select class="routine-food-unit" data-rfood-unit aria-label="Food unit">' + foodUnitOptions(f.unit || 'can') + '</select>' +
+            '<button class="ghost routine-food-remove" data-rfood-remove="' + j + '" type="button" title="Remove food" aria-label="Remove food">✕</button>' +
+          '</div>';
+        }).join('') + '</div>' +
+        '<div class="routine-food-tools"><button class="ghost tiny" data-rfood-add="' + i + '" type="button">＋ Food</button>' +
+          (quick.length ? '<span class="routine-food-quick-label">QUICK</span>' + quick.map(function (f) {
+            return '<button class="chip" data-rfood-quick="' + esc(f.id) + '" data-rfood-row="' + i + '" type="button" title="' + esc(foodPresetSummary(f)) + '">' + esc(f.name) + '</button>';
+          }).join('') : '') +
+          '<button class="ghost tiny" data-rfood-default="' + i + '" type="button">Make default</button>' +
+        '</div></div>';
+    }
 
     var doneCount = rows.filter(function (r) { return r.log; }).length;
-    // "Log all" covers items that need no value typed in (measures always need one)
     var remaining = rows.map(function (r, i) { return i; }).filter(function (i) { return !rows[i].log && rows[i].item.kind !== 'measure'; });
     list.innerHTML =
       '<div class="routine-list">' + rows.map(function (row, i) {
@@ -708,20 +932,14 @@
         var stop = '<button class="star" data-stop="' + i + '" type="button" title="Stop repeating daily" aria-label="Stop repeating daily" aria-pressed="true">★</button>';
         if (log) {
           var at = (row.med && row.med.at) || log.loggedAt;
-          var sub = (isWeight ? esc(fmtWeight(log.weight)) + ' · ' : isMood ? 'Mood ' + esc(log.mood) + '/5 · ' : '') +
-            (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
-          // Older single-medicine logs kept the dose in the log's own note.
+          var sub = (isWeight ? esc(fmtWeight(log.weight)) + ' · ' : isMood ? 'Mood ' + esc(log.mood) + '/5 · ' : '') + (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
           var desc = isWeight || isMood ? '' : isFood ? foodLogText(log, p) : (row.med.note || (!log.routine && log.meds.length === 1 ? log.note : ''));
           return '<div class="routine-row routine-' + it.kind + ' done">' +
             '<div class="routine-check" aria-hidden="true">✓</div>' +
-            '<div class="routine-main"><b>' + title + '</b>' +
-              (desc ? '<span class="routine-desc">' + esc(desc) + '</span>' : '') +
-              '<span>' + sub + '</span></div>' +
+            '<div class="routine-main"><b>' + title + '</b>' + (desc ? '<span class="routine-desc">' + esc(desc) + '</span>' : '') + '<span>' + sub + '</span></div>' +
             '<div class="routine-actions"><button class="ghost tiny" data-undo="' + i + '" type="button">Undo</button>' + stop + '</div>' +
           '</div>';
         }
-        // Not logged yet: the dose is editable and pre-filled with the routine's
-        // default. Changes apply to this one log only.
         var noteKey = draftKey(it, 'note');
         var weightKey = draftKey(it, 'weight');
         return '<div class="routine-row routine-' + it.kind + '">' +
@@ -729,47 +947,52 @@
           '<div class="routine-main"><b>' + title + '</b><span>Not yet today · ' + esc(routineRecency(p, it)) + '</span></div>' +
           '<div class="routine-actions">' +
             (isWeight
-              ? '<input type="number" step="any" min="0" inputmode="decimal" placeholder="' + (weightUnit() === 'kg' ? 'kg' : 'lb') + '"' +
-                ' aria-label="' + (weightUnit() === 'kg' ? 'Weight in kilograms' : 'Weight in pounds') + '"' +
-                ' data-row="' + i + '" data-field="weight" data-draft="' + esc(weightKey) + '"' +
-                ' value="' + esc(draftOr(it, 'weight', '')) + '">' +
-                (weightUnit() === 'lboz'
-                  ? '<input class="wt-oz" type="number" step="any" min="0" inputmode="decimal" placeholder="oz" aria-label="Ounces"' +
-                    ' data-row="' + i + '" data-field="weightOz" data-draft="' + esc(weightKey + 'Oz') + '"' +
-                    ' value="' + esc(draftOr(it, 'weightOz', '')) + '">'
-                  : '')
+              ? '<input type="number" step="any" min="0" inputmode="decimal" placeholder="' + (weightUnit() === 'kg' ? 'kg' : 'lb') + '" aria-label="' + (weightUnit() === 'kg' ? 'Weight in kilograms' : 'Weight in pounds') + '" data-row="' + i + '" data-field="weight" data-draft="' + esc(weightKey) + '" value="' + esc(draftOr(it, 'weight', '')) + '">' +
+                (weightUnit() === 'lboz' ? '<input class="wt-oz" type="number" step="any" min="0" inputmode="decimal" placeholder="oz" aria-label="Ounces" data-row="' + i + '" data-field="weightOz" data-draft="' + esc(weightKey + 'Oz') + '" value="' + esc(draftOr(it, 'weightOz', '')) + '">' : '')
               : '') +
             (isMood
-              ? '<span class="mood-row" role="group" aria-label="Mood, 1 to 5">' + [1, 2, 3, 4, 5].map(function (n) {
-                  return '<button class="mood-btn" type="button" data-mood-row="' + i + '" data-mood="' + n + '" aria-label="Mood ' + n + ' of 5">' + n + '</button>';
-                }).join('') + '</span>'
+              ? '<span class="mood-row" role="group" aria-label="Mood, 1 to 5">' + [1, 2, 3, 4, 5].map(function (n) { return '<button class="mood-btn" type="button" data-mood-row="' + i + '" data-mood="' + n + '" aria-label="Mood ' + n + ' of 5">' + n + '</button>'; }).join('') + '</span>'
               : '<button class="sage tiny" data-log="' + i + '" type="button">Log</button>') + stop +
           '</div>' +
-          (isWeight || isMood ? '' :
-            '<div class="routine-desc-wrap">' +
-              '<input class="routine-desc-input" data-row="' + i + '" data-field="note" data-draft="' + esc(noteKey) + '"' +
-                ' value="' + esc(draftOr(it, 'note', it.note || '')) + '"' +
-                ' placeholder="' + (isFood ? 'Food / brand' : 'Dose / note (optional)') + '" aria-label="' + (isFood ? 'Food' : 'Note for ' + esc(it.med)) + '">' +
-              (isFood ? '<span class="food-routine-amount"><input type="number" step="any" min="0" inputmode="decimal" data-row="' + i + '" data-field="foodAmount" data-draft="' + esc(draftKey(it, 'foodAmount')) + '" placeholder="amount" aria-label="Food amount" value="' + esc(draftOr(it, 'foodAmount', it.foodAmount || '')) + '"><select data-row="' + i + '" data-field="foodUnit" data-draft="' + esc(draftKey(it, 'foodUnit')) + '" aria-label="Food unit">' + foodUnitOptions(draftOr(it, 'foodUnit', it.foodUnit || 'can')) + '</select></span>' : '') +
-              // Shown once the dose differs from the saved default
-              '<button class="ghost tiny" data-default="' + i + '" type="button"' +
-                (String(draftOr(it, 'note', it.note || '')).trim() === String(it.note || '').trim() ? ' hidden' : '') +
-                '>Make default</button>' +
-            '</div>') +
+          (isFood ? foodEditorHtml(it, i) : isWeight || isMood ? '' :
+            '<div class="routine-desc-wrap"><input class="routine-desc-input" data-row="' + i + '" data-field="note" data-draft="' + esc(noteKey) + '" value="' + esc(draftOr(it, 'note', it.note || '')) + '" placeholder="Dose / note (optional)" aria-label="Note for ' + esc(it.med) + '">' +
+              '<button class="ghost tiny" data-default="' + i + '" type="button"' + (String(draftOr(it, 'note', it.note || '')).trim() === String(it.note || '').trim() ? ' hidden' : '') + '>Make default</button></div>') +
         '</div>';
       }).join('') + '</div>' +
-      '<div class="routine-footer"><span class="progress">' + doneCount + ' of ' + rows.length + ' done</span>' +
-        (remaining.length >= 2 ? '<button class="secondary tiny" id="logAllMeds" type="button">Log all remaining</button>' : '') +
-      '</div>';
+      '<div class="routine-footer"><span class="progress">' + doneCount + ' of ' + rows.length + ' done</span>' + (remaining.length >= 2 ? '<button class="secondary tiny" id="logAllMeds" type="button">Log all remaining</button>' : '') + '</div>';
 
     function field(i, name) {
       var el = list.querySelector('[data-row="' + i + '"][data-field="' + name + '"]');
       return el ? el.value : '';
     }
+    function readRoutineFoodEditor(i) {
+      var editor = list.querySelector('[data-rfood-editor="' + i + '"]');
+      if (!editor) return [];
+      var out = [];
+      editor.querySelectorAll('[data-rfood-line]').forEach(function (line) {
+        var item = normalizeFoodItem({
+          name: line.querySelector('[data-rfood-name]').value,
+          amount: line.querySelector('[data-rfood-amount]').value,
+          unit: line.querySelector('[data-rfood-unit]').value,
+          presetId: line.querySelector('[data-rfood-preset]').value
+        });
+        if (item.name || item.amount !== '') out.push(item);
+      });
+      return out;
+    }
+    function saveRoutineFoodDraft(i) {
+      var it = rows[i] && rows[i].item;
+      if (!it || it.kind !== 'food') return [];
+      var foods = readRoutineFoodEditor(i);
+      routineDrafts[foodDraftKey(it)] = foods.length ? foods : [normalizeFoodItem({ unit: 'can' })];
+      return routineDrafts[foodDraftKey(it)];
+    }
     function entry(i) {
       var lbEl = list.querySelector('[data-row="' + i + '"][data-field="weight"]');
       var ozEl = list.querySelector('[data-row="' + i + '"][data-field="weightOz"]');
-      return { item: rows[i].item, note: field(i, 'note'), weight: lbEl ? readWeight(lbEl, ozEl) : '', foodAmount: field(i, 'foodAmount'), foodUnit: field(i, 'foodUnit') };
+      var it = rows[i].item;
+      if (it.kind === 'food') return { item: it, foods: readRoutineFoodEditor(i) };
+      return { item: it, note: field(i, 'note'), weight: lbEl ? readWeight(lbEl, ozEl) : '' };
     }
 
     list.querySelectorAll('[data-draft]').forEach(function (input) {
@@ -778,6 +1001,76 @@
         if (e.key !== 'Enter') return;
         e.preventDefault();
         logRoutineItems(p.id, [entry(Number(input.getAttribute('data-row')))], false);
+      });
+    });
+    list.querySelectorAll('[data-rfood-editor] input, [data-rfood-editor] select').forEach(function (el) {
+      el.addEventListener('input', function () {
+        var editor = el.closest('[data-rfood-editor]');
+        var i = Number(editor.getAttribute('data-rfood-editor'));
+        if (el.hasAttribute('data-rfood-name')) {
+          var line = el.closest('[data-rfood-line]');
+          var fp = foodPresetForName(p, el.value);
+          line.querySelector('[data-rfood-preset]').value = fp ? fp.id : '';
+        }
+        saveRoutineFoodDraft(i);
+      });
+      el.addEventListener('change', function () {
+        var editor = el.closest('[data-rfood-editor]'), i = Number(editor.getAttribute('data-rfood-editor'));
+        if (el.hasAttribute('data-rfood-name')) {
+          var line = el.closest('[data-rfood-line]'), fp = foodPresetForName(p, el.value);
+          if (fp) {
+            line.querySelector('[data-rfood-preset]').value = fp.id;
+            var amt = line.querySelector('[data-rfood-amount]');
+            var unit = line.querySelector('[data-rfood-unit]');
+            if (!amt.value) amt.value = trimNum(fp.defaultAmount, 3);
+            unit.value = fp.defaultUnit;
+          }
+        }
+        saveRoutineFoodDraft(i);
+      });
+    });
+    list.querySelectorAll('[data-rfood-add]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.getAttribute('data-rfood-add'));
+        var foods = saveRoutineFoodDraft(i).slice();
+        foods.push(normalizeFoodItem({ unit: 'can' }));
+        routineDrafts[foodDraftKey(rows[i].item)] = foods;
+        renderToday();
+      });
+    });
+    list.querySelectorAll('[data-rfood-remove]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var editor = b.closest('[data-rfood-editor]'), i = Number(editor.getAttribute('data-rfood-editor'));
+        var foods = saveRoutineFoodDraft(i).slice();
+        foods.splice(Number(b.getAttribute('data-rfood-remove')), 1);
+        routineDrafts[foodDraftKey(rows[i].item)] = foods.length ? foods : [normalizeFoodItem({ unit: 'can' })];
+        renderToday();
+      });
+    });
+    list.querySelectorAll('[data-rfood-quick]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.getAttribute('data-rfood-row')), fp = foodPresetById(p, b.getAttribute('data-rfood-quick'));
+        if (!fp) return;
+        var foods = saveRoutineFoodDraft(i).slice();
+        var x = normalizeFoodItem({ name: fp.name, amount: fp.defaultAmount, unit: fp.defaultUnit, presetId: fp.id });
+        var blank = foods.findIndex(function (f) { return !f.name && f.amount === ''; });
+        if (blank >= 0) foods[blank] = x; else foods.push(x);
+        routineDrafts[foodDraftKey(rows[i].item)] = foods;
+        renderToday();
+      });
+    });
+    list.querySelectorAll('[data-rfood-default]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.getAttribute('data-rfood-default'));
+        var cur = state.pets.find(function (x) { return x.id === p.id; });
+        var item = cur && (cur.routine || []).find(function (it) { return it.id === rows[i].item.id; });
+        if (!item) return toast('This item was removed on another device');
+        var foods = saveRoutineFoodDraft(i).map(normalizeFoodItem).filter(function (x) { return x.name; });
+        if (!foods.length) return toast('Add a food first');
+        item.foods = foods.map(function (x) { return { name: x.name, amount: x.amount, unit: x.unit || 'can', presetId: x.presetId || '' }; });
+        delete item.note; delete item.foodAmount; delete item.foodUnit; delete item.foodPresetId;
+        delete routineDrafts[foodDraftKey(item)];
+        save(); render(); toast('New default for Food');
       });
     });
     list.querySelectorAll('[data-log]').forEach(function (b) {
@@ -800,13 +1093,10 @@
     });
     list.querySelectorAll('[data-mundo]').forEach(function (b) {
       b.addEventListener('click', function () {
-        var row = rows[Number(b.getAttribute('data-mundo'))];
-        var r = row.log;
+        var row = rows[Number(b.getAttribute('data-mundo'))], r = row.log;
         r.readings = r.readings.filter(function (x) { return x !== row.reading; });
         if (isBlankRecord(r)) state.records = state.records.filter(function (x) { return x.id !== r.id; });
-        save();
-        render();
-        toast('Removed');
+        save(); render(); toast('Removed');
       });
     });
     list.querySelectorAll('[data-mood]').forEach(function (b) {
@@ -819,57 +1109,31 @@
     list.querySelectorAll('[data-undo]').forEach(function (b) {
       b.addEventListener('click', function () { undoRoutineLog(rows[Number(b.getAttribute('data-undo'))]); });
     });
-    // Changing a dose/food row offers to save it as the routine default.
+    // Medicine dose defaults (food has its own multi-line Make default button).
     list.querySelectorAll('[data-default]').forEach(function (b) {
       var i = Number(b.getAttribute('data-default'));
       var input = list.querySelector('[data-row="' + i + '"][data-field="note"]');
-      var amountInput = list.querySelector('[data-row="' + i + '"][data-field="foodAmount"]');
-      var unitInput = list.querySelector('[data-row="' + i + '"][data-field="foodUnit"]');
-      function refreshDefaultButton() {
-        var it = rows[i].item;
-        var changed = input.value.trim() !== String(it.note || '').trim();
-        if (it.kind === 'food') {
-          changed = changed || String(amountInput ? amountInput.value : '') !== String(it.foodAmount == null ? '' : it.foodAmount) ||
-            String(unitInput ? unitInput.value : '') !== String(it.foodUnit || 'can');
-        }
-        b.hidden = !changed;
-      }
-      input.addEventListener('input', refreshDefaultButton);
-      if (amountInput) amountInput.addEventListener('input', refreshDefaultButton);
-      if (unitInput) unitInput.addEventListener('change', refreshDefaultButton);
-      refreshDefaultButton();
+      if (!input) return;
+      function refreshDefaultButton() { b.hidden = input.value.trim() === String(rows[i].item.note || '').trim(); }
+      input.addEventListener('input', refreshDefaultButton); refreshDefaultButton();
       b.addEventListener('click', function () {
         var cur = state.pets.find(function (x) { return x.id === p.id; });
         var item = cur && (cur.routine || []).find(function (it) { return it.id === rows[i].item.id; });
         if (!item) return toast('This item was removed on another device');
         item.note = input.value.trim();
-        if (item.kind === 'food') {
-          var av = amountInput ? amountInput.value.trim() : '';
-          item.foodAmount = av === '' ? '' : Number(av);
-          item.foodUnit = unitInput && FOOD_UNITS[unitInput.value] ? unitInput.value : 'can';
-          var fp = foodPresetForName(cur, item.note);
-          item.foodPresetId = fp ? fp.id : '';
-        }
         delete routineDrafts[p.id + ':' + item.id + ':note'];
-        delete routineDrafts[p.id + ':' + item.id + ':foodAmount'];
-        delete routineDrafts[p.id + ':' + item.id + ':foodUnit'];
-        save();
-        render();
-        toast('New default for ' + routineTitle(item));
+        save(); render(); toast('New default for ' + routineTitle(item));
       });
     });
     list.querySelectorAll('[data-stop]').forEach(function (b) {
       b.addEventListener('click', function () {
         var it = rows[Number(b.getAttribute('data-stop'))].item;
         var what = it.kind === 'weight' ? 'the daily weigh-in' : it.kind === 'food' ? 'daily food' : it.kind === 'mood' ? 'daily mood' : routineTitle(it, p);
-        // Sits right beside Log, so confirm rather than remove on a stray tap.
         if (!confirm('Stop showing ' + what + ' every day?\n\nToday\'s log isn\'t affected. You can add it back with ★ in the log form.')) return;
         toggleRoutine(p, { kind: it.kind, med: it.med, m: it.m });
       });
     });
-    if ($('logAllMeds')) {
-      $('logAllMeds').addEventListener('click', function () { logRoutineItems(p.id, remaining.map(entry), true); });
-    }
+    if ($('logAllMeds')) $('logAllMeds').addEventListener('click', function () { logRoutineItems(p.id, remaining.map(entry), true); });
 
     if (focus) {
       var fields = list.querySelectorAll('[data-draft]');
@@ -887,7 +1151,8 @@
   // a weigh-in left blank is skipped instead of blocking the others.
   function logRoutineItems(petId, entries, lenient) {
     var now = new Date().toISOString();
-    var meds = [], weight = '', food = '', foodData = null, mood = '';
+    var meds = [], weight = '', foods = [], mood = '';
+    var pet = state.pets.find(function (x) { return x.id === petId; });
     for (var i = 0; i < entries.length; i++) {
       var en = entries[i], it = en.item;
       if (it.kind === 'weight') {
@@ -897,23 +1162,30 @@
         }
         weight = Number(en.weight);
       } else if (it.kind === 'food') {
-        var fd = String(en.note || '').trim();
-        if (!fd) { if (lenient) continue; return toast('Enter the food first'); }
-        var fa = String(en.foodAmount == null ? '' : en.foodAmount).trim();
-        if (fa !== '' && !(Number(fa) > 0)) { if (lenient) continue; return toast('Check the food amount'); }
-        var fu = FOOD_UNITS[en.foodUnit] ? en.foodUnit : (FOOD_UNITS[it.foodUnit] ? it.foodUnit : 'can');
-        var pet = state.pets.find(function (x) { return x.id === petId; });
-        var fp = foodPresetById(pet, it.foodPresetId) || foodPresetForName(pet, fd);
-        food = fd;
-        foodData = { amount: fa === '' ? '' : Number(fa), unit: fu, preset: fp };
+        var rawFoods = Array.isArray(en.foods) ? en.foods : [];
+        // Compatibility with a v6 routine row still in memory.
+        if (!rawFoods.length && en.note) rawFoods = [{ name: en.note, amount: en.foodAmount, unit: en.foodUnit || 'can', presetId: it.foodPresetId || '' }];
+        var cleaned = [], bad = '';
+        rawFoods.forEach(function (raw) {
+          if (bad) return;
+          var f = normalizeFoodItem(raw);
+          if (!f.name && f.amount === '') return;
+          if (!f.name) { bad = 'Enter the food name'; return; }
+          if (f.amount !== '' && (!(Number(f.amount) > 0) || !isFinite(Number(f.amount)))) { bad = 'Check the food amount'; return; }
+          if (!f.unit && f.amount !== '') f.unit = 'can';
+          cleaned.push(loggedFoodItem(pet, f));
+        });
+        if (bad) { if (lenient) continue; return toast(bad); }
+        if (!cleaned.length) { if (lenient) continue; return toast('Enter the food first'); }
+        foods = foods.concat(cleaned);
       } else if (it.kind === 'mood') {
-        if (!(en.mood >= 1 && en.mood <= 5)) continue; // logged with its own 1–5 buttons
+        if (!(en.mood >= 1 && en.mood <= 5)) continue;
         mood = en.mood;
       } else {
         meds.push({ name: it.med, note: String(en.note || '').trim(), at: now });
       }
     }
-    if (!meds.length && weight === '' && food === '' && mood === '') return toast('Nothing to log yet');
+    if (!meds.length && weight === '' && !foods.length && mood === '') return toast('Nothing to log yet');
     var target = todayRecordFor(petId);
     if (!target) {
       target = blankRecord(petId, today());
@@ -922,44 +1194,27 @@
       state.records.push(target);
     }
     target.meds = target.meds.concat(meds);
-    // A second weigh-in (or food, or mood) keeps its own log so both survive.
     [['weight', weight], ['mood', mood]].forEach(function (pair) {
       if (pair[1] === '') return;
       var t = target;
       if (has(t[pair[0]])) { t = blankRecord(petId, today()); t.loggedAt = now; t.routine = true; state.records.push(t); }
       t[pair[0]] = pair[1];
     });
-    if (food !== '') {
-      var ft = target;
-      if (has(ft.food)) { ft = blankRecord(petId, today()); ft.loggedAt = now; ft.routine = true; state.records.push(ft); }
-      ft.food = food;
-      if (foodData && foodData.amount !== '') {
-        ft.foodAmount = foodData.amount;
-        ft.foodUnit = foodData.unit;
-        if (foodData.preset) {
-          ft.foodPresetId = foodData.preset.id;
-          if (Number(foodData.preset.packageAmount) > 0 && foodData.unit === foodData.preset.defaultUnit && FOOD_UNITS[foodData.unit] && FOOD_UNITS[foodData.unit].kind === 'count') {
-            ft.foodUnitSize = Number(foodData.preset.packageAmount);
-            ft.foodUnitSizeUnit = foodData.preset.packageUnit;
-          }
-          var fk = foodKcalFor(foodData.preset, foodData.amount, foodData.unit);
-          if (fk !== '') ft.foodKcal = fk;
-        }
-      }
+    if (foods.length) {
+      setRecordFoodItems(target, foodItemsOf(target).concat(foods));
     }
-    // Logged: forget what was typed, so tomorrow starts from the default again.
     entries.forEach(function (en) {
       delete routineDrafts[petId + ':' + en.item.id + ':note'];
       delete routineDrafts[petId + ':' + en.item.id + ':weight'];
       delete routineDrafts[petId + ':' + en.item.id + ':weightOz'];
       delete routineDrafts[petId + ':' + en.item.id + ':foodAmount'];
       delete routineDrafts[petId + ':' + en.item.id + ':foodUnit'];
+      delete routineDrafts[petId + ':' + en.item.id + ':foods'];
     });
-    save();
-    render();
+    save(); render();
     var done = meds.map(function (m) { return m.name; });
     if (weight !== '') done.push('Weight');
-    if (food !== '') done.push('Food');
+    if (foods.length) done.push('Food');
     if (mood !== '') done.push('Mood');
     toast(done.length === 1 ? done[0] + ' logged' : done.length + ' items logged');
   }
@@ -1023,8 +1278,8 @@
     var r = row.log;
     if (row.med) r.meds = r.meds.filter(function (m) { return m !== row.med; });
     else {
-      r[row.item.kind] = ''; // 'weight', 'food' or 'mood'
-      if (row.item.kind === 'food') ['foodAmount', 'foodUnit', 'foodKcal', 'foodPresetId', 'foodUnitSize', 'foodUnitSizeUnit'].forEach(function (k) { r[k] = ''; });
+      if (row.item.kind === 'food') setRecordFoodItems(r, []);
+      else r[row.item.kind] = ''; // 'weight' or 'mood'
     }
     if (isBlankRecord(r)) state.records = state.records.filter(function (x) { return x.id !== r.id; });
     save();
@@ -1085,7 +1340,7 @@
       });
     });
     $('medOptions').innerHTML = meds.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
-    var foodNames = topValues(state.records.map(function (r) { return r.food; }));
+    var foodNames = topValues([].concat.apply([], state.records.map(function (r) { return foodItemsOf(r).map(function (x) { return x.name; }); })));
     state.pets.forEach(function (p) {
       petFoodPresets(p).forEach(function (f) {
         if (f.name && !foodNames.some(function (n) { return normName(n) === normName(f.name); })) foodNames.push(f.name);
@@ -1604,6 +1859,8 @@
       return;
     }
     var mode = $('chartMode').value;
+    var foodUnitSelect = $('foodChartUnit');
+    if (foodUnitSelect) foodUnitSelect.hidden = mode !== 'food';
     // Time range: only logs from the chosen period (30 / 90 / 365 days, or all)
     var range = $('chartRange').value;
     var rangeFrom = range === 'all' ? null : shiftDay(today(), -(Number(range) - 1));
@@ -1614,7 +1871,7 @@
     // Weight, mood, activity and cost are placed by date, so gaps between logs
     // show as gaps. Positions are whole days (UTC) to avoid time-zone drift.
     var mDef = mode.indexOf('measure:') === 0 ? measureById(activePet(), mode.slice(8)) : null;
-    var isTimeMode = mode === 'weight' || mode === 'mood' || mode === 'activity' || mode === 'cost' || !!mDef;
+    var isTimeMode = mode === 'weight' || mode === 'food' || mode === 'mood' || mode === 'activity' || mode === 'cost' || !!mDef;
     function dayNum(d) { var p = d.split('-'); return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 864e5); }
     function dayText(n, withYear) {
       var o = { month: 'short', day: 'numeric', timeZone: 'UTC' };
@@ -1691,7 +1948,60 @@
     // Compose chart config based on mode
     var chartConfig = null;
 
-    if (mode === 'types') {
+    if (mode === 'food') {
+      var petForFood = activePet();
+      var foodAxis = foodUnitSelect ? foodUnitSelect.value : 'kcal';
+      var allFoodItems = [];
+      allRecords.forEach(function (r) { allFoodItems = allFoodItems.concat(foodItemsOf(r)); });
+      var hasAnyKcal = allFoodItems.some(function (f) { return Number(f.kcal) > 0; });
+      var kcalOpt = foodUnitSelect && foodUnitSelect.querySelector('option[value="kcal"]');
+      if (kcalOpt) kcalOpt.disabled = !hasAnyKcal;
+      // If this pet has never had calorie data, begin with a unit they actually
+      // use rather than opening to an empty kcal chart.
+      if (foodAxis === 'kcal' && !hasAnyKcal) {
+        var firstMeasured = allFoodItems.find(function (f) { return Number(f.amount) > 0 && FOOD_UNITS[f.unit]; });
+        foodAxis = firstMeasured ? firstMeasured.unit : 'can';
+        if (foodUnitSelect) foodUnitSelect.value = foodAxis;
+      }
+      var byDayFood = {}, foodNames = {}, foodOrder = [], usable = 0, omitted = 0;
+      rs.forEach(function (r) {
+        foodItemsOf(r).forEach(function (f) {
+          var value = '';
+          if (foodAxis === 'kcal') value = Number(f.kcal) > 0 ? Number(f.kcal) : '';
+          else if (Number(f.amount) > 0 && f.unit) value = convertFoodAmount(Number(f.amount), f.unit, foodAxis, foodItemConversionPreset(petForFood, f));
+          if (value === '' || !isFinite(Number(value))) { if (f.name) omitted++; return; }
+          usable++;
+          var k = normName(f.name), labelName = f.name || 'Food';
+          if (!foodNames[k]) { foodNames[k] = labelName; foodOrder.push(k); }
+          byDayFood[r.date] = byDayFood[r.date] || {};
+          byDayFood[r.date][k] = (byDayFood[r.date][k] || 0) + Number(value);
+        });
+      });
+      var foodDays = Object.keys(byDayFood).sort();
+      labels = foodDays.map(formatDate);
+      data = foodDays.length ? [1] : [];
+      name = 'Food intake';
+      chartType = 'bar';
+      var suffix = foodAxis === 'kcal' ? ' kcal' : ' ' + foodUnitLabel(foodAxis, 2);
+      chartConfig = {
+        type: 'bar',
+        data: {
+          datasets: foodOrder.map(function (k, idx) {
+            return {
+              label: foodNames[k],
+              data: foodDays.map(function (d) { return { x: dayNum(d), y: Math.round((byDayFood[d][k] || 0) * 1000) / 1000 }; }),
+              backgroundColor: C.series[idx % C.series.length],
+              borderWidth: 0,
+              borderRadius: 3,
+              stack: 'food'
+            };
+          })
+        }
+      };
+      $('chartSummary').innerHTML = foodAxis === 'kcal'
+        ? (usable ? '<span class="badge">Daily calories from foods with kcal data</span>' : '') + (omitted ? '<span class="badge">' + omitted + ' food ' + (omitted === 1 ? 'line' : 'lines') + ' without kcal omitted</span>' : '')
+        : (usable ? '<span class="badge">Daily intake in ' + esc(foodUnitLabel(foodAxis, 2)) + '</span>' : '') + (omitted ? '<span class="badge">' + omitted + ' incompatible food ' + (omitted === 1 ? 'line' : 'lines') + ' omitted</span>' : '');
+    } else if (mode === 'types') {
       var counts = {};
       rs.forEach(function (r) { kindsOf(r).forEach(function (k) { counts[label(k)] = (counts[label(k)] || 0) + 1; }); });
       labels = Object.keys(counts);
@@ -1921,6 +2231,7 @@
     }
 
     var isStackedWeekly = mode === 'gi-weekly' || mode === 'play-weekly' || mode === 'symptom-weekly' || mode === 'stool-weekly';
+    var isFoodChart = mode === 'food';
     var isWeeklyMode = mode === 'vomit-weekly' || mode === 'diarrhea-weekly' || isStackedWeekly;
 
     // Empty state: for weekly modes we always have padded labels (≥12 weeks),
@@ -1963,7 +2274,7 @@
       };
     }
 
-    var showLegend = isStackedWeekly || (mode === 'weight' && chartConfig.data.datasets.length > 1);
+    var showLegend = isStackedWeekly || isFoodChart || (mode === 'weight' && chartConfig.data.datasets.length > 1);
 
     chartConfig.options = {
       responsive: true,
@@ -1992,7 +2303,13 @@
           padding: 10,
           cornerRadius: 8,
           filter: function (item) { return !item.dataset.isRange; },
-          callbacks: isTimeMode ? {
+          callbacks: isFoodChart ? {
+            title: function (items) { return items[0] ? dayText(items[0].parsed.x, true) : ''; },
+            label: function (item) {
+              var u = $('foodChartUnit').value;
+              return item.dataset.label + ': ' + trimNum(item.parsed.y, u === 'kcal' ? 1 : 3) + (u === 'kcal' ? ' kcal' : ' ' + foodUnitLabel(u, item.parsed.y));
+            }
+          } : isTimeMode ? {
             title: function (items) {
               if (!items[0]) return '';
               var x = items[0].parsed.x;
@@ -2019,10 +2336,10 @@
       scales: {
         y: {
           beginAtZero: mode !== 'weight' && !mDef,
-          stacked: isStackedWeekly,
-          ticks: Object.assign({ precision: 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined }, weightTicks(), measureTicks()),
+          stacked: isStackedWeekly || isFoodChart,
+          ticks: Object.assign({ precision: isFoodChart ? undefined : 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined }, weightTicks(), measureTicks()),
           grid: { color: C.grid },
-          title: isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
+          title: isFoodChart ? { display: true, text: $('foodChartUnit').value === 'kcal' ? 'kcal' : foodUnitLabel($('foodChartUnit').value, 2), color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
         },
         x: isTimeMode ? timeAxis() : {
           stacked: isStackedWeekly,
@@ -2065,6 +2382,7 @@
       var withYear = hi - lo > 330;
       return {
         type: 'linear',
+        stacked: isFoodChart,
         min: lo,
         max: hi,
         ticks: {
@@ -2219,24 +2537,9 @@
     if (typeof record.weight === 'number' && isNaN(record.weight)) { toast('Check the weight'); return null; }
     record.activity = num($('rActivity').value);
     record.cost = num($('rCost').value);
-    record.food = $('rFood').value.trim();
-    var foodAmountRaw = $('rFoodAmount').value.trim();
-    if (foodAmountRaw !== '') {
-      record.foodAmount = Number(foodAmountRaw);
-      if (!(record.foodAmount > 0) || !isFinite(record.foodAmount)) { toast('Check the food amount'); return null; }
-      if (!record.food) { toast('Enter the food name'); return null; }
-      record.foodUnit = FOOD_UNITS[$('rFoodUnit').value] ? $('rFoodUnit').value : 'can';
-      var fp = foodPresetById(formPet(), $('rFoodPresetId').value) || foodPresetForName(formPet(), record.food);
-      if (fp) {
-        record.foodPresetId = fp.id;
-        if (Number(fp.packageAmount) > 0 && record.foodUnit === fp.defaultUnit && FOOD_UNITS[record.foodUnit] && FOOD_UNITS[record.foodUnit].kind === 'count') {
-          record.foodUnitSize = Number(fp.packageAmount);
-          record.foodUnitSizeUnit = fp.packageUnit;
-        }
-        var fk = foodKcalFor(fp, record.foodAmount, record.foodUnit);
-        if (fk !== '') record.foodKcal = fk;
-      }
-    }
+    var formFoods = readFoodRows(true);
+    if (formFoods === null) return null;
+    setRecordFoodItems(record, formFoods);
     record.note = $('rNote').value.trim();
     record.meds = readMedRows();
     // Tags outside the chip set (kept from older data) survive an edit untouched.
@@ -2298,15 +2601,12 @@
     scalar('mood', 'Mood', function (v) { return v + '/5'; });
     scalar('activity', 'Activity', function (v) { return v + ' min'; });
     scalar('cost', 'Cost', function (v) { return '$' + v; });
-    scalar('food', 'Food', function (v) { return v; });
     scalar('playSize', 'Play size', function (v) { return PLAY_SIZES[v] || v; });
     scalar('vetType', 'Visit type', function (v) { return VET_TYPES[v] || v; });
     if (conflicts.length && !confirm('That log already has:\n\n' + conflicts.join('\n') + '\n\nReplace with the new values?')) return;
     ['weight', 'mood', 'activity', 'cost', 'playSize', 'vetType'].forEach(function (f) { if (has(add[f])) target[f] = add[f]; });
-    if (has(add.food)) {
-      target.food = add.food;
-      ['foodAmount', 'foodUnit', 'foodKcal', 'foodPresetId', 'foodUnitSize', 'foodUnitSizeUnit'].forEach(function (f) { target[f] = add[f] || ''; });
-    }
+    var appendedFoods = foodItemsOf(add);
+    if (appendedFoods.length) setRecordFoodItems(target, foodItemsOf(target).concat(appendedFoods));
     add.meds.forEach(function (m) {
       var dup = target.meds.some(function (x) { return normName(x.name) === normName(m.name) && normName(x.note) === normName(m.note); });
       if (!dup) target.meds.push(m);
@@ -2374,10 +2674,7 @@
     writeWeight($('rWeight'), $('rWeightOz'), r.weight);
     $('rActivity').value = r.activity;
     $('rCost').value = r.cost;
-    $('rFood').value = r.food || '';
-    $('rFoodAmount').value = has(r.foodAmount) ? r.foodAmount : '';
-    $('rFoodUnit').value = r.foodUnit || 'can';
-    $('rFoodPresetId').value = r.foodPresetId || '';
+    renderFoodRows(foodItemsOf(r));
     updateFoodPreview();
     $('rNote').value = r.note || '';
     fillFormReadings(r);
@@ -2414,8 +2711,8 @@
   function clearRecordForm() {
     editingLogId = null;
     $('rId').value = '';
-    ['rMood', 'rWeight', 'rWeightOz', 'rActivity', 'rCost', 'rFood', 'rFoodAmount', 'rFoodPresetId', 'rNote', 'rTime'].forEach(function (id) { $(id).value = ''; });
-    $('rFoodUnit').value = 'can';
+    ['rMood', 'rWeight', 'rWeightOz', 'rActivity', 'rCost', 'rNote', 'rTime'].forEach(function (id) { $(id).value = ''; });
+    renderFoodRows([]);
     updateFoodPreview();
     editingKeepReadings = [];
     document.querySelectorAll('#measureRows [data-measure]').forEach(function (el) { el.value = ''; });
@@ -2441,13 +2738,13 @@
   }
 
   function exportCsv() {
-    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'food amount', 'food unit', 'food kcal', 'food unit size', 'food unit size unit', 'medications', 'readings', 'note']];
+    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'food amount', 'food unit', 'food kcal', 'food unit size', 'food unit size unit', 'food items json', 'medications', 'readings', 'note']];
     state.records.forEach(function (r) {
       var p = state.pets.find(function (x) { return x.id === r.petId; }) || {};
       var meds = r.meds.map(function (m) { return m.name + (m.note ? ' (' + m.note + ')' : ''); }).join('; ');
       rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), (r.symptoms || []).join('; '),
         (r.vomitKinds || []).join('; '), (r.stoolKinds || []).join('; '), r.vetType || '', r.playSize || '', (r.playKinds || []).join('; '),
-        r.weight, r.mood, r.activity, r.cost, r.food, r.foodAmount, r.foodUnit, r.foodKcal, r.foodUnitSize, r.foodUnitSizeUnit, meds, readingsText(p, r), r.note]);
+        r.weight, r.mood, r.activity, r.cost, r.food, r.foodAmount, r.foodUnit, r.foodKcal, r.foodUnitSize, r.foodUnitSizeUnit, JSON.stringify(foodItemsOf(r)), meds, readingsText(p, r), r.note]);
     });
     var csv = rows.map(function (row) {
       return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
@@ -2483,14 +2780,15 @@
     var p = activePet();
     var name = p ? p.name : 'Luna';
     var rows = [
-      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'food', 'food amount', 'food unit', 'food kcal', 'mood', 'activity', 'cost', 'note', 'readings'],
-      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.', ''],
-      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Blood glucose=142 @08:00'],
+      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'food', 'food amount', 'food unit', 'food kcal', 'food items json', 'mood', 'activity', 'cost', 'note', 'readings'],
+      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.', ''],
+      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Blood glucose=142 @08:00'],
       ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', '', '', '', '', '', '', 'Restless all evening', ''],
-      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', '', '', '', 'Big play at 10 pm', ''],
-      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', 'Fancy Feast Chicken', '1.35', 'can', '122', '', '', '', '1.35 cans eaten', ''],
-      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', '', '', '', '', ''],
-      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', 'scheduled', '', '', '', '', '', '', '', '', '85', 'Annual checkup (' + name + ')', '']
+      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', '', '', '', '', 'Big play at 10 pm', ''],
+      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', 'Fancy Feast Chicken', '1.35', 'can', '122', '', '', '', '', '1.35 cans eaten', ''],
+      ['Example', '9/23/2026', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '[{"name":"Fancy Feast Chicken","amount":0.75,"unit":"can","kcal":67.5},{"name":"Science Diet","amount":0.5,"unit":"pouch","kcal":38}]', '', '', '', 'Multiple foods can share one log by using food items json.', ''],
+      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', 'scheduled', '', '', '', '', '', '', '', '', '', '85', 'Annual checkup (' + name + ')', '']
     ];
     download('pet-health-import-template.csv', rows.map(csvLine).join('\n'), 'text/csv');
     toast('Template downloaded');
@@ -2546,7 +2844,8 @@
   function logSignature(r) {
     function t(x) { return String(x == null ? '' : x).trim().toLowerCase().replace(/\s+/g, ' '); }
     function n(x) { return has(x) && isFinite(Number(x)) ? Math.round(Number(x) * 1000) / 1000 : ''; }
-    return JSON.stringify([r.petId, r.date, n(r.weight), n(r.mood), n(r.activity), n(r.cost), t(r.food), n(r.foodAmount), t(r.foodUnit), n(r.foodKcal), t(r.note),
+    var foodSig = foodItemsOf(r).map(function (f) { return [t(f.name), n(f.amount), t(f.unit), n(f.kcal), n(f.unitSize), t(f.unitSizeUnit)].join('|'); });
+    return JSON.stringify([r.petId, r.date, n(r.weight), n(r.mood), n(r.activity), n(r.cost), foodSig, t(r.note),
       (r.meds || []).map(function (m) { return t(m.name) + '|' + t(m.note); }).sort(),
       (r.tags || []).slice().sort(), (r.symptoms || []).map(t).sort(), t(r.playSize), (r.playKinds || []).map(t).sort(),
       (r.vomitKinds || []).map(t).sort(), (r.stoolKinds || []).map(t).sort(), t(r.vetType),
@@ -2566,6 +2865,7 @@
       playSize: ['play size', 'size'], play: ['play', 'play labels'],
       food: ['food', 'meal'], foodAmount: ['food amount', 'amount eaten', 'meal amount'], foodUnit: ['food unit', 'meal unit'],
       foodKcal: ['food kcal', 'calories eaten', 'kcal'], foodUnitSize: ['food unit size', 'package size'], foodUnitSizeUnit: ['food unit size unit', 'package size unit'],
+      foodItems: ['food items json', 'food items', 'foods json'],
       mood: ['mood'], activity: ['activity', 'activity minutes', 'minutes'],
       cost: ['cost', 'price'], note: ['note', 'notes', 'description', 'comment']
     };
@@ -2703,22 +3003,40 @@
       rec.vomitKinds = vomitKinds;
       rec.stoolKinds = stoolKinds;
       rec.vetType = vetType;
-      rec.food = get('food');
-      var faText = get('foodAmount').replace(/,/g, '');
-      if (faText !== '') {
-        var fa = Number(faText);
-        if (!(fa > 0) || !isFinite(fa)) return problem('Food amount "' + get('foodAmount') + '" doesn\'t make sense');
-        if (!rec.food) return problem('Food amount was given without a food name');
-        rec.foodAmount = fa;
-        var fu = get('foodUnit').toLowerCase();
-        if (!FOOD_UNITS[fu]) return problem('Food unit "' + get('foodUnit') + '" isn\'t recognized');
-        rec.foodUnit = fu;
-        var fkText = get('foodKcal').replace(/,/g, '');
-        if (fkText !== '') { var fk = Number(fkText); if (!(fk > 0) || !isFinite(fk)) return problem('Food kcal "' + get('foodKcal') + '" doesn\'t make sense'); rec.foodKcal = fk; }
-        var fsText = get('foodUnitSize').replace(/,/g, '');
-        if (fsText !== '') { var fs = Number(fsText); if (!(fs > 0) || !isFinite(fs)) return problem('Food unit size "' + get('foodUnitSize') + '" doesn\'t make sense'); rec.foodUnitSize = fs; }
-        var fsu = get('foodUnitSizeUnit').toLowerCase();
-        if (fsu) { if (!FOOD_UNITS[fsu] || FOOD_UNITS[fsu].kind !== 'mass') return problem('Food unit size unit "' + get('foodUnitSizeUnit') + '" isn\'t a weight unit'); rec.foodUnitSizeUnit = fsu; }
+      var foodJson = get('foodItems');
+      if (foodJson) {
+        var parsedFoods;
+        try { parsedFoods = JSON.parse(foodJson); } catch (e) { return problem('Food items JSON is not valid JSON'); }
+        if (!Array.isArray(parsedFoods)) return problem('Food items JSON must be a list');
+        var importedFoods = [], foodProblem = '';
+        parsedFoods.forEach(function (raw) {
+          if (foodProblem) return;
+          var f = normalizeFoodItem(raw);
+          if (!f.name) { foodProblem = 'Every food item needs a name'; return; }
+          if (f.amount !== '' && (!(Number(f.amount) > 0) || !FOOD_UNITS[f.unit])) { foodProblem = 'Check the amount/unit for ' + f.name; return; }
+          importedFoods.push(f);
+        });
+        if (foodProblem) return problem(foodProblem);
+        setRecordFoodItems(rec, importedFoods);
+      } else {
+        rec.food = get('food');
+        var faText = get('foodAmount').replace(/,/g, '');
+        if (faText !== '') {
+          var fa = Number(faText);
+          if (!(fa > 0) || !isFinite(fa)) return problem('Food amount "' + get('foodAmount') + '" doesn\'t make sense');
+          if (!rec.food) return problem('Food amount was given without a food name');
+          rec.foodAmount = fa;
+          var fu = get('foodUnit').toLowerCase();
+          if (!FOOD_UNITS[fu]) return problem('Food unit "' + get('foodUnit') + '" isn\'t recognized');
+          rec.foodUnit = fu;
+          var fkText = get('foodKcal').replace(/,/g, '');
+          if (fkText !== '') { var fk = Number(fkText); if (!(fk > 0) || !isFinite(fk)) return problem('Food kcal "' + get('foodKcal') + '" doesn\'t make sense'); rec.foodKcal = fk; }
+          var fsText = get('foodUnitSize').replace(/,/g, '');
+          if (fsText !== '') { var fs = Number(fsText); if (!(fs > 0) || !isFinite(fs)) return problem('Food unit size "' + get('foodUnitSize') + '" doesn\'t make sense'); rec.foodUnitSize = fs; }
+          var fsu = get('foodUnitSizeUnit').toLowerCase();
+          if (fsu) { if (!FOOD_UNITS[fsu] || FOOD_UNITS[fsu].kind !== 'mass') return problem('Food unit size unit "' + get('foodUnitSizeUnit') + '" isn\'t a weight unit'); rec.foodUnitSizeUnit = fsu; }
+        }
+        if (rec.food) setRecordFoodItems(rec, [normalizeFoodItem({ name: rec.food, amount: rec.foodAmount, unit: rec.foodUnit, kcal: rec.foodKcal, unitSize: rec.foodUnitSize, unitSizeUnit: rec.foodUnitSizeUnit })]);
       }
       rec.mood = mood;
       rec.activity = activity;
@@ -2975,7 +3293,7 @@
     // medicine-only logs (their notes are doses) and episodes (listed above)
     var notes = recs.filter(function (r) {
       if (hasTag(r, 'vomit') || hasTag(r, 'stool')) return false;
-      var medicineOnly = r.meds.length && !r.tags.length && !has(r.weight) && !r.food && !has(r.activity) && !has(r.mood);
+      var medicineOnly = r.meds.length && !r.tags.length && !has(r.weight) && !foodItemsOf(r).length && !has(r.activity) && !has(r.mood);
       if (medicineOnly) return false;
       return !!r.note || hasTag(r, 'symptom') || hasTag(r, 'vet');
     }).map(function (r) {
@@ -3000,17 +3318,23 @@
     var sizes = { big: 0, decent: 0, short: 0, tiny: 0 };
     playLogs.forEach(function (r) { if (sizes[r.playSize] !== undefined) sizes[r.playSize]++; });
 
-    // Food: what was fed, in order, with each change of food starting a new line
-    var foods = [];
+    // Food: each distinct food gets its own row because a single log can now
+    // contain several foods at once.
+    var foods = [], foodByName = {};
     recs.forEach(function (r) {
-      if (!r.food) return;
-      var last = foods[foods.length - 1];
-      if (last && normName(last.food) === normName(r.food)) { last.to = r.date; last.days[r.date] = true; }
-      else foods.push({ food: r.food, from: r.date, to: r.date, days: (function () { var o = {}; o[r.date] = true; return o; })() });
+      foodItemsOf(r).forEach(function (item) {
+        var k = normName(item.name);
+        if (!k) return;
+        if (!foodByName[k]) { foodByName[k] = { food: item.name, from: r.date, to: r.date, days: {} }; foods.push(foodByName[k]); }
+        var f = foodByName[k];
+        if (r.date < f.from) f.from = r.date;
+        if (r.date > f.to) f.to = r.date;
+        f.days[r.date] = true;
+      });
     });
     foods.forEach(function (f) { f.dayCount = Object.keys(f.days).length; delete f.days; });
-    var foodEntries = recs.filter(function (r) { return !!r.food; }).map(function (r) {
-      return { date: r.date, text: foodLogText(r, pet), amount: foodAmountText(r, pet), kcal: Number(r.foodKcal) > 0 ? Number(r.foodKcal) : '' };
+    var foodEntries = recs.filter(function (r) { return foodItemsOf(r).length; }).map(function (r) {
+      return { date: r.date, text: foodLogText(r, pet), amount: foodAmountText(r, pet), kcal: foodTotalKcal(r) };
     });
 
     // Mood: average, and the lowest days
@@ -3053,15 +3377,35 @@
       });
       return eventsByDay(items);
     }
-    // A switch to a different food, including at the start of the period if
-    // it differs from what was fed before
+    // Mark days where the set of foods changes. With multiple foods in one
+    // day this is more accurate than treating one food as the day's identity.
     function foodChanges() {
-      var items = [];
-      var before = '';
-      state.records.forEach(function (r) { if (r.petId === pet.id && r.date < from && r.food) before = r.food; });
-      foods.forEach(function (f, i) {
-        var prev = i ? foods[i - 1].food : before;
-        if (prev && normName(prev) !== normName(f.food)) items.push({ date: f.from, text: 'Changed to ' + f.food });
+      var dayFoods = {}, beforeDay = '', beforeNames = [];
+      state.records.slice().sort(byDate).forEach(function (r) {
+        if (r.petId !== pet.id) return;
+        var names = foodItemsOf(r).map(function (x) { return x.name; });
+        if (!names.length) return;
+        if (r.date < from) {
+          if (!beforeDay || r.date >= beforeDay) {
+            if (r.date !== beforeDay) beforeNames = [];
+            beforeDay = r.date;
+            beforeNames = beforeNames.concat(names);
+          }
+          return;
+        }
+        if (r.date > to) return;
+        dayFoods[r.date] = (dayFoods[r.date] || []).concat(names);
+      });
+      function clean(list) {
+        var seen = {};
+        return list.filter(function (n) { var k = normName(n); if (!k || seen[k]) return false; seen[k] = true; return true; }).sort(function (a, b) { return normName(a).localeCompare(normName(b)); });
+      }
+      var prev = clean(beforeNames), items = [];
+      Object.keys(dayFoods).sort().forEach(function (d) {
+        var cur = clean(dayFoods[d]);
+        var a = prev.map(normName).join('|'), b = cur.map(normName).join('|');
+        if (a && a !== b) items.push({ date: d, text: 'Food: ' + cur.join(', ') });
+        prev = cur;
       });
       return eventsByDay(items);
     }
@@ -3210,7 +3554,7 @@
         sum.foods.map(function (f) {
           return '<tr><td>' + esc(f.food) + '</td><td>' + esc(shortDate(f.from)) + (f.to !== f.from ? ' – ' + esc(shortDate(f.to)) : '') + '</td><td>' + f.dayCount + '</td></tr>';
         }).join('') + '</table></div>';
-      if (sum.foods.length > 1) h += '<p class="vr-muted">Each line is a change of food, in order.</p>';
+      if (sum.foods.length > 1) h += '<p class="vr-muted">Foods are listed separately even when several were eaten on the same day.</p>';
       if (sum.foodEntries.some(function (e) { return e.amount || e.kcal !== ''; })) {
         h += '<h3 class="vr-sub">Recorded intake</h3><div class="vr-scroll"><table><tr><th>Date</th><th>Food / amount</th><th>Calories</th></tr>' +
           sum.foodEntries.map(function (e) { return '<tr><td>' + esc(shortDate(e.date)) + '</td><td>' + esc(e.text.replace(/ · [^·]+ kcal$/, '')) + '</td><td>' + (e.kcal !== '' ? esc(trimNum(e.kcal, 1)) + ' kcal' : '—') + '</td></tr>'; }).join('') + '</table></div>';
@@ -3273,7 +3617,7 @@
             var md = measureById(p, x.m);
             if (md) bits.push(esc(md.name) + ' ' + esc(fmtMeasureValue(md, x.v)) + (x.t ? ' at ' + esc(timeText(x.t)) : ''));
           });
-          if (r.food) bits.push('Food: ' + esc(foodLogText(r, p)));
+          if (foodItemsOf(r).length) bits.push('Food: ' + esc(foodLogText(r, p)));
           if (has(r.activity)) bits.push('Activity ' + esc(r.activity) + ' min');
           if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
           if (has(r.cost)) bits.push('Cost $' + esc(r.cost));
@@ -3639,7 +3983,7 @@
   // Older logs had a single `type` and a single `med` string; they're converted
   // on every read, so data written by an older copy of the app still loads.
   function blankRecord(petId, date) {
-    return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', foodAmount: '', foodUnit: '', foodKcal: '', foodPresetId: '', foodUnitSize: '', foodUnitSizeUnit: '', meds: [], tags: [], note: '',
+    return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', foodAmount: '', foodUnit: '', foodKcal: '', foodPresetId: '', foodUnitSize: '', foodUnitSizeUnit: '', foodItems: [], meds: [], tags: [], note: '',
       symptoms: [], playSize: '', playKinds: [], vomitKinds: [], stoolKinds: [], vetType: '', readings: [] };
   }
   // A stool log marked as diarrhea (what used to be a Diarrhea log)
@@ -3660,6 +4004,12 @@
     r.foodUnitSize = r.foodUnitSize === '' || r.foodUnitSize == null ? '' : Number(r.foodUnitSize);
     if (r.foodUnitSize !== '' && (!(r.foodUnitSize > 0) || !isFinite(r.foodUnitSize))) r.foodUnitSize = '';
     r.foodUnitSizeUnit = FOOD_UNITS[r.foodUnitSizeUnit] && FOOD_UNITS[r.foodUnitSizeUnit].kind === 'mass' ? r.foodUnitSizeUnit : '';
+    // v7: food is a list. Migrate the v6 single-food fields in place, then
+    // mirror the first item back to them for backward compatibility.
+    if (Array.isArray(r.foodItems)) r.foodItems = r.foodItems.map(normalizeFoodItem).filter(function (x) { return x.name; });
+    else r.foodItems = [];
+    if (!r.foodItems.length && r.food) r.foodItems = [normalizeFoodItem({ name: r.food, amount: r.foodAmount, unit: r.foodUnit, kcal: r.foodKcal, presetId: r.foodPresetId, unitSize: r.foodUnitSize, unitSizeUnit: r.foodUnitSizeUnit })];
+    syncLegacyFoodFields(r);
     r.note = r.note == null ? '' : String(r.note);
     r.meds = (Array.isArray(r.meds) ? r.meds : []).filter(function (m) { return m && m.name; }).map(function (m) {
       var out = { name: String(m.name), note: m.note == null ? '' : String(m.note) };
@@ -3709,10 +4059,10 @@
       p.routine.forEach(function (it) {
         if (it && isMedItem(it) && typeof it.note !== 'string') it.note = lastMedNote(st.records, p.id, it.med);
         if (it && it.kind === 'food') {
-          if (it.foodAmount !== '' && it.foodAmount != null && !(Number(it.foodAmount) > 0)) it.foodAmount = '';
-          if (it.foodAmount !== '' && it.foodAmount != null) it.foodAmount = Number(it.foodAmount);
-          if (!FOOD_UNITS[it.foodUnit]) it.foodUnit = 'can';
-          if (it.foodPresetId) it.foodPresetId = String(it.foodPresetId);
+          var rf = Array.isArray(it.foods) ? it.foods.map(normalizeFoodItem).filter(function (x) { return x.name; }) : [];
+          if (!rf.length && it.note) rf = [normalizeFoodItem({ name: it.note, amount: it.foodAmount, unit: it.foodUnit || 'can', presetId: it.foodPresetId })];
+          it.foods = rf.map(function (x) { return { name: x.name, amount: x.amount, unit: x.unit || 'can', presetId: x.presetId || '' }; });
+          delete it.note; delete it.foodAmount; delete it.foodUnit; delete it.foodPresetId;
         }
       });
     });
@@ -3725,13 +4075,13 @@
     var k = r.tags.slice();
     if (has(r.weight)) k.push('weight');
     if (r.meds.length) k.push('medication');
-    if (r.food) k.push('meal');
+    if (foodItemsOf(r).length) k.push('meal');
     if (has(r.activity) && k.indexOf('activity') < 0) k.push('activity');
     if ((r.readings || []).length) k.push('measure');
     return k;
   }
   function isBlankRecord(r) {
-    return !has(r.weight) && !has(r.mood) && !has(r.activity) && !has(r.cost) && !r.food && !r.meds.length && !r.tags.length && !r.note &&
+    return !has(r.weight) && !has(r.mood) && !has(r.activity) && !has(r.cost) && !foodItemsOf(r).length && !r.meds.length && !r.tags.length && !r.note &&
       !(r.readings || []).length;
   }
   // ===== SAVING & CLOUD SYNC =====
@@ -3928,11 +4278,14 @@
     ['weight', 'mood', 'activity', 'cost', 'note'].forEach(function (k) {
       if (!has(local[k]) && has(remote[k])) out[k] = remote[k];
     });
-    if (!has(local.food) && has(remote.food)) {
-      ['food', 'foodAmount', 'foodUnit', 'foodKcal', 'foodPresetId', 'foodUnitSize', 'foodUnitSizeUnit'].forEach(function (k) { out[k] = remote[k] || ''; });
-    } else if (has(local.food) && has(remote.food) && normName(local.food) === normName(remote.food)) {
-      ['foodAmount', 'foodUnit', 'foodKcal', 'foodPresetId', 'foodUnitSize', 'foodUnitSizeUnit'].forEach(function (k) { if (!has(local[k]) && has(remote[k])) out[k] = remote[k]; });
-    }
+    var mergedFoods = [], foodSeen = {};
+    foodItemsOf(local).concat(foodItemsOf(remote)).forEach(function (f) {
+      var key = [normName(f.name), f.amount, f.unit, f.kcal, f.unitSize, f.unitSizeUnit].join('|');
+      if (foodSeen[key]) return;
+      foodSeen[key] = true;
+      mergedFoods.push(f);
+    });
+    setRecordFoodItems(out, mergedFoods);
     function medKey(m) { return (m.at || '') + '|' + normName(m.name); }
     var seen = {};
     out.meds = remote.meds.concat(local.meds).filter(function (m) {
@@ -4157,7 +4510,7 @@
   function avg(a) { return a.reduce(function (x, y) { return x + y; }, 0) / a.length; }
   function label(t) {
     return ({
-      weight: 'Weight', meal: 'Meal', medication: 'Medication',
+      weight: 'Weight', food: 'Food intake', meal: 'Meal', medication: 'Medication',
       activity: 'Activity', symptom: 'Symptom', vet: 'Vet visit', measure: 'Measurement',
       vomit: 'Vomit', diarrhea: 'Diarrhea', stool: 'Stool',
       mood: 'Mood', cost: 'Cost', types: 'Types'
@@ -4245,22 +4598,12 @@
     $('appendBtn').addEventListener('click', appendToLastLog);
     $('addMeasureBtn').addEventListener('click', function () { openMeasureEditor(null); });
     $('manageFoodsBtn').addEventListener('click', openFoodManager);
-    $('rFood').addEventListener('input', function () {
-      var fp = foodPresetForName(formPet(), $('rFood').value);
-      $('rFoodPresetId').value = fp ? fp.id : '';
-      updateFoodPreview();
-      renderStars();
-    });
-    $('rFood').addEventListener('change', function () {
-      var fp = foodPresetForName(formPet(), $('rFood').value);
-      if (fp) applyFoodPresetToForm(fp, false); else updateFoodPreview();
-    });
-    $('rFoodAmount').addEventListener('input', updateFoodPreview);
-    $('rFoodUnit').addEventListener('change', updateFoodPreview);
+    $('addFoodRow').addEventListener('click', function () { addFoodRow({}, true); });
+    renderFoodRows([]);
     $('rDate').addEventListener('change', renderAppendHint);
     $('addMedRow').addEventListener('click', function () { addMedRow('', '').querySelector('.med-name').focus(); });
     $('starWeight').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'weight' }); });
-    $('starFood').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'food', note: $('rFood').value, foodPresetId: $('rFoodPresetId').value, foodAmount: $('rFoodAmount').value, foodUnit: $('rFoodUnit').value }); });
+    $('starFood').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'food', foods: readFoodRows(false) || [] }); });
     $('starMood').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'mood' }); });
     $('weightUnit').addEventListener('change', function () { setWeightUnit($('weightUnit').value); });
     applyWeightUnitToForm();
@@ -4271,6 +4614,14 @@
       });
     });
     $('chartMode').addEventListener('change', renderChart);
+    try {
+      var savedFoodUnit = localStorage.getItem('petHealth.foodChartUnit');
+      if (savedFoodUnit && $('foodChartUnit').querySelector('option[value="' + savedFoodUnit + '"]')) $('foodChartUnit').value = savedFoodUnit;
+    } catch (e) {}
+    $('foodChartUnit').addEventListener('change', function () {
+      try { localStorage.setItem('petHealth.foodChartUnit', $('foodChartUnit').value); } catch (e) {}
+      renderChart();
+    });
     try { var savedRange = localStorage.getItem('petHealth.chartRange'); if (savedRange) $('chartRange').value = savedRange; } catch (e) {}
     $('chartRange').addEventListener('change', function () {
       try { localStorage.setItem('petHealth.chartRange', $('chartRange').value); } catch (e) {}

@@ -7,10 +7,11 @@ A responsive web app for tracking the health and daily care of your pets. Works 
 ## Features
 
 - Track weight, meals, medications, activity, mood, symptoms, vomit/diarrhea episodes, and vet visits
-- Trend charts for weight, mood, activity, cost, and GI episodes (weekly)
+- Log multiple foods in one entry, with amount/unit, reusable Quick Foods, optional package size, and calorie density
+- Trend charts for weight, food intake (including kcal when provided), mood, activity, cost, and GI episodes (weekly)
 - Search, edit, and delete individual logs
 - Pet summary with care snapshot and stats
-- Daily Routine quick logging, including how long it has been since each routine item was last logged
+- Daily Routine quick logging, including multiple foods and how long it has been since each routine item was last logged
 - Export data as CSV or JSON; import from JSON backup
 - Fully responsive — bottom tab navigation on mobile
 
