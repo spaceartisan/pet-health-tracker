@@ -1639,6 +1639,17 @@ async function vetSummaryV4() {
   check('medicine changes marked', titles.some((x) => /FortiFlora started/.test(x)) && titles.some((x) => /Cerenia started/.test(x)), titles);
   check('food changes marked', titles.some((x) => /Food: Bland diet/.test(x)), titles);
   check('choices remembered', JSON.parse(A.storage()['petHealth.vetMarks']).medicine === true);
+  // Trend charts: offered only when there's data, off until chosen, remembered
+  const chartBox = (k) => rep().querySelector('[data-chart="' + k + '"]');
+  check('trend charts offered for data in the period', ['food', 'mood', 'gi', 'stool'].every((k) => chartBox(k)) && !chartBox('activity'), [...rep().querySelectorAll('[data-chart]')].map((b) => b.getAttribute('data-chart')));
+  check('no trend charts until chosen', !rep().querySelector('.vr-trends'));
+  const pick = (k) => { const b = chartBox(k); b.checked = true; b.dispatchEvent(new A.w.Event('change')); };
+  pick('food'); pick('gi');
+  const strips = [...rep().querySelectorAll('.vr-trends [data-strip]')].map((x) => x.getAttribute('data-strip'));
+  check('chosen charts shown in a fixed order', JSON.stringify(strips) === '["food","gi"]', strips);
+  check('food chart shows the average with its unit', /avg \d+ kcal\/day/.test(rep().querySelector('[data-strip="food"]').textContent), rep().querySelector('[data-strip="food"]').textContent);
+  check('only the last chart has the dates', !rep().querySelector('[data-strip="food"]').textContent.includes('Sep 24') && rep().querySelector('[data-strip="gi"]').textContent.includes('Sep 24'));
+  check('chart choices remembered', JSON.parse(A.storage()['petHealth.vetCharts']).gi === true);
   tick('diarrhea');
   check('diarrhea marked', [...rep().querySelectorAll('.vr-chart text')].some((x) => x.textContent === 'Diarrhea'));
   check('no script errors', A.log.errors.length === 0, A.log.errors);
