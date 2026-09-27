@@ -19,7 +19,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- Bump ?v= on both files with every release, so browsers fetch the new ones together. -->
-<link rel="stylesheet" href="styles.css?v=6.1">
+<link rel="stylesheet" href="styles.css?v=6.2">
 <script>
   // Apply this device's saved color theme before the page draws, so the
   // default colors don't flash first.
@@ -109,6 +109,7 @@
                 <span class="tag-routine-item"><button type="button" class="tag-chip symptom" data-tag="symptom" aria-pressed="false">Symptom</button><button type="button" class="star tag-routine-star" data-routine-tag="symptom" title="Put Symptom in Daily Routine" aria-label="Put Symptom in Daily Routine" aria-pressed="false">☆</button></span>
                 <span class="tag-routine-item"><button type="button" class="tag-chip vomit" data-tag="vomit" aria-pressed="false">Vomit</button><button type="button" class="star tag-routine-star" data-routine-tag="vomit" title="Put Vomit in Daily Routine" aria-label="Put Vomit in Daily Routine" aria-pressed="false">☆</button></span>
                 <span class="tag-routine-item"><button type="button" class="tag-chip stool" data-tag="stool" aria-pressed="false">Stool</button><button type="button" class="star tag-routine-star" data-routine-tag="stool" title="Put Stool in Daily Routine" aria-label="Put Stool in Daily Routine" aria-pressed="false">☆</button></span>
+                <span class="tag-routine-item"><button type="button" class="tag-chip urine" data-tag="urine" aria-pressed="false">Urination</button><button type="button" class="star tag-routine-star" data-routine-tag="urine" title="Put Urination in Daily Routine" aria-label="Put Urination in Daily Routine" aria-pressed="false">☆</button></span>
                 <span class="tag-routine-item"><button type="button" class="tag-chip activity" data-tag="activity" aria-pressed="false">Activity</button><button type="button" class="star tag-routine-star" data-routine-tag="activity" title="Put Activity in Daily Routine" aria-label="Put Activity in Daily Routine" aria-pressed="false">☆</button></span>
                 <span class="tag-routine-item"><button type="button" class="tag-chip vet" data-tag="vet" aria-pressed="false">Vet visit</button><button type="button" class="star tag-routine-star" data-routine-tag="vet" title="Put Vet visit in Daily Routine" aria-label="Put Vet visit in Daily Routine" aria-pressed="false">☆</button></span>
               </div>
@@ -177,6 +178,7 @@
                     <option value="vomit-weekly">Vomit</option>
                     <option value="diarrhea-weekly">Diarrhea</option>
                     <option value="stool-weekly">Stool</option>
+                    <option value="urine-weekly">Urination</option>
                     <option value="symptom-weekly">Symptoms</option>
                     <option value="play-weekly">Play</option>
                   </optgroup>
@@ -239,7 +241,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=6.1"></script>
+<script src="app.js?v=6.2"></script>
 <script>
   // PWA shell: GitHub Pages is HTTPS, so the service worker can make this
   // site installable and keep the local app shell available when offline.

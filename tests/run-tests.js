@@ -1263,10 +1263,10 @@ async function bulkImport() {
   check('Import offers spreadsheet, template and backup restore', !!A.$('imCsv') && !!A.$('imTemplate') && !!A.$('imJson'));
   A.click('imTemplate'); await wait();
   const template = await readBlob(A, A.downloads[0]);
-  check('template has the columns', /^"pet","date","lb","oz","medications","tags","symptoms","vomit","stool","vet type","play size","play"/.test(template), template.slice(0, 80));
+  check('template has the columns', /^"pet","date","lb","oz","medications","tags","symptoms","vomit","stool","urine","vet type","play size","play"/.test(template), template.slice(0, 80));
   A.click('modalClose');
   await importCsv(A, template);
-  check('importing the untouched template adds nothing', /Nothing new to add/.test(preview(A)) && /8 example rows/.test(preview(A)) && !A.$('impAdd'), preview(A));
+  check('importing the untouched template adds nothing', /Nothing new to add/.test(preview(A)) && /9 example rows/.test(preview(A)) && !A.$('impAdd'), preview(A));
   A.click('impCancel');
 
   // The main import
@@ -1439,6 +1439,72 @@ async function stoolVomitVet() {
   check('Stool (weekly) chart stacks by label', cw && cw.data.datasets.some((ds) => ds.label === 'Soft'), cw && cw.data.datasets.map((x) => x.label));
   check('no script errors', A.log.errors.length === 0, A.log.errors);
   A.close();
+}
+
+// =====================================================================
+// URINATION (version 9): labels, log card, chart, 14-day notes, vet summary, spreadsheet
+// =====================================================================
+async function urination() {
+  resetServer({ [CODE]: vault(CODE) });
+  const A = openApp(makeClient('a'), linked(CODE, vault(CODE)));
+  await settle();
+  const d = A.d;
+  const tag = (t) => d.querySelector('#rTags [data-tag="' + t + '"]');
+  const chip = (name) => d.querySelector('#labelPanel [data-label-kind="urine"][data-label="' + name + '"]');
+  const latest = () => A.state().records.filter((r) => r.date === TODAY).pop();
+  check('the form has a Urination chip', tag('urine') && tag('urine').textContent === 'Urination');
+  tag('urine').click();
+  const offered = [...d.querySelectorAll('#labelPanel [data-label-kind="urine"]')].map((b) => b.getAttribute('data-label'));
+  check('urination offers its fixed options', ['Normal', 'Large', 'Small', 'Straining', 'Blood', 'Outside the box'].every((x) => offered.includes(x)), offered);
+  chip('Straining').click(); chip('Small').click();
+  A.addLog('in and out of the box'); await settle();
+  const r = latest();
+  check('urination labels and tag saved', r && r.tags.includes('urine') && JSON.stringify(r.urineKinds) === JSON.stringify(['Straining', 'Small']), r && [r.tags, r.urineKinds]);
+  const card = d.querySelector('.record[data-id="' + r.id + '"]').textContent;
+  check('the log card shows them', card.includes('Urination') && card.includes('Straining'), card);
+  check('unusual urination is noted in the last 14 days', /Urination: Straining, Small/.test(A.$('careNotes').textContent), A.$('careNotes').textContent);
+  A.editLog(r.id);
+  check('editing restores the labels', chip('Straining').getAttribute('aria-pressed') === 'true');
+  A.click('clearForm');
+  // A normal one, then the weekly chart: Normal is its own (green) series
+  tag('urine').click(); chip('Normal').click();
+  A.addLog(''); await settle();
+  const cw = A.chart('urine-weekly');
+  const labels = cw ? cw.data.datasets.map((x) => x.label) : [];
+  check('Urination (weekly) chart stacks by label', ['Normal', 'Straining', 'Small'].every((x) => labels.includes(x)), labels);
+  const normalSet = cw.data.datasets.find((x) => x.label === 'Normal');
+  check('...with Normal in green', normalSet && normalSet.backgroundColor === A.w.getComputedStyle(d.documentElement).getPropertyValue('--chart-s1').trim(), normalSet && normalSet.backgroundColor);
+
+  // Vet summary: counts, how often, and only the unusual ones listed
+  A.click('vetSummaryBtn'); A.$('vsPeriod').value = '30'; A.click('vsCreate');
+  const rep = A.$('vetReport');
+  const sec = [...rep.querySelectorAll('section')].find((x) => /urination/.test(x.querySelector('h2').textContent));
+  check('vet summary has urination with the vomiting and stool', !!sec && sec.querySelector('h2').textContent === 'Vomiting, stool and urination');
+  check('...with counts and how often', sec && /Urination logs: 2 \(Normal 1 · Small 1 · Straining 1\) · about 2 a day on 1 day logged/.test(sec.textContent), sec && sec.textContent);
+  check('...listing the unusual one, not the normal one', sec && [...sec.querySelectorAll('td')].filter((td) => /^Urination/.test(td.textContent)).length === 1 && /1 normal urination not listed/.test(sec.textContent));
+  const box = rep.querySelector('[data-chart="urine"]');
+  check('urination trend chart offered', !!box);
+  box.checked = true; box.dispatchEvent(new A.w.Event('change'));
+  check('...and drawn when chosen', !!rep.querySelector('[data-strip="urine"]'));
+  A.$('vrClose').click();
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+
+  // Spreadsheet: a "urine" column, and "pee" as a tag word
+  resetServer({ [CODE]: vault(CODE) });
+  const B = openApp(makeClient('b'), linked(CODE, vault(CODE)));
+  await settle();
+  const input = B.$('csvInput');
+  const csv = 'pet,date,tags,urine,note\nPepper,2026-09-20,,Blood; Large,big clump\nPepper,2026-09-21,pee,,';
+  Object.defineProperty(input, 'files', { value: [new B.w.File([csv], 'u.csv', { type: 'text/csv' })], configurable: true });
+  input.dispatchEvent(new B.w.Event('change'));
+  await settle(); await new Promise((res) => setTimeout(res, 30)); await settle();
+  B.click('impAdd'); await settle();
+  const imp = B.state().records.filter((x) => x.date === '2026-09-20' && x.note === 'big clump')[0];
+  check('spreadsheet urine labels imply the tag', imp && imp.tags.includes('urine') && JSON.stringify(imp.urineKinds) === JSON.stringify(['Blood', 'Large']), imp);
+  check('"pee" is read as urination', B.state().records.some((x) => x.date === '2026-09-21' && x.tags.includes('urine')));
+  check('no script errors', B.log.errors.length === 0, B.log.errors);
+  B.close();
 }
 
 // =====================================================================
@@ -1911,6 +1977,7 @@ async function previousVersion() {
     await runGroup('Weight units' + tag, weightUnits);
     await runGroup('Bulk import' + tag, bulkImport);
     await runGroup('Stool, vomit & vet type' + tag, stoolVomitVet);
+    await runGroup('Urination' + tag, urination);
     await runGroup('Add to last log' + tag, addToLastLog);
     await runGroup('Food & mood routine' + tag, foodMoodRoutine);
     await runGroup('Food amounts, multiple foods & food trends' + tag, foodAmountsV7);
