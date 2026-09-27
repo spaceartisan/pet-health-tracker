@@ -9,13 +9,17 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Pet Health Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<meta name="application-name" content="Pet Health Tracker">
+<meta name="description" content="Track pet health, daily care, weight, medications, meals, symptoms, mood and vet visits.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- Bump ?v= on both files with every release, so browsers fetch the new ones together. -->
-<link rel="stylesheet" href="styles.css?v=5.2">
+<link rel="stylesheet" href="styles.css?v=5.4">
 <script>
   // Apply this device's saved color theme before the page draws, so the
   // default colors don't flash first.
@@ -246,6 +250,18 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=5.2"></script>
+<script src="app.js?v=5.4"></script>
+<script>
+  // PWA shell: GitHub Pages is HTTPS, so the service worker can make this
+  // site installable and keep the local app shell available when offline.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js').catch(function () {
+        // Installation support is optional; never block the health tracker if
+        // a browser or private mode refuses service-worker registration.
+      });
+    });
+  }
+</script>
 </body>
 </html>

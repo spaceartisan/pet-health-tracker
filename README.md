@@ -1,6 +1,6 @@
 # Pet Health Tracker
 
-A responsive web app for tracking the health and daily care of your pets. Works on mobile and desktop. No installation required.
+A responsive web app for tracking the health and daily care of your pets. Works on mobile and desktop, and can optionally be installed to a phone home screen as a standalone web app (PWA).
 
 **Live app:** https://spaceartisan.github.io/pet-health-tracker/
 
@@ -13,6 +13,15 @@ A responsive web app for tracking the health and daily care of your pets. Works 
 - Daily Routine quick logging, including how long it has been since each routine item was last logged
 - Export data as CSV or JSON; import from JSON backup
 - Fully responsive — bottom tab navigation on mobile
+
+## Install on a phone
+
+The GitHub Pages site is a Progressive Web App (PWA). Installing it is optional and does not create a separate data store.
+
+- **iPhone/iPad:** open the site in Safari → **Share** → **Add to Home Screen** → **Add**.
+- **Android/Chrome:** open the site → browser menu → **Install app** or **Add to Home screen**.
+
+When launched from the home-screen icon, the tracker opens in a standalone app window. The service worker caches the local app shell and, after an online launch, caches static CDN/font assets as they are used. Local logging can still open without a connection; cloud sync requires network access. If the chart library has never been loaded before an offline launch, the tracker stays usable and simply hides trend charts until it is online.
 
 ## Cloud Sync
 
@@ -112,6 +121,9 @@ If you add a new top-level field to the saved data, add it to the `hasOnly([...]
 | `styles.css` | All styles, including the Garden, Night and Ocean themes |
 | `app.js` | All app code |
 | `version.json` | The live data version, checked by the app to offer updates |
+| `manifest.webmanifest` | PWA name, colors, launch behavior and install icons |
+| `sw.js` | Service worker that caches the same-origin app shell for install/offline launch |
+| `icons/` | Home-screen and maskable PWA icons |
 | `firestore.rules` | A copy of the Firebase security rules (keep it matching the console) |
 | `tests/` | Automated tests; see `tests/README.md` |
 
@@ -121,7 +133,7 @@ If you add a new top-level field to the saved data, add it to the `hasOnly([...]
 
 Every save carries the app's version (`_v`) and a new write stamp (`_w`). The rules refuse saves below `minVersion()`. A refused copy of the app keeps its changes on the device and shows a banner with a **Reload** button; after reloading, its unsent changes are merged in. The app also checks `version.json` when it's opened and when it comes back to the screen, and offers the update if a newer version is live.
 
-**Every update:** in `index.html`, bump the `?v=` number on both `styles.css?v=…` and `app.js?v=…` (e.g. `5.0` → `5.1`). Browsers then fetch the new files together instead of mixing a new page with an old cached script. The tests check the two numbers match.
+**Every update:** in `index.html`, bump the `?v=` number on both `styles.css?v=…` and `app.js?v=…` (e.g. `5.0` → `5.1`). Also bump `SHELL_CACHE` and the matching `styles.css?v=…` / `app.js?v=…` entries in `sw.js`. Browsers then fetch the new files together instead of mixing a new page with an old cached script. The tests check the two numbers match.
 
 **Most updates** (fixes, new features that don't change saved data): bump `?v=`, run the tests, push. Nothing else to change.
 

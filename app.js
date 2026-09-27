@@ -465,7 +465,7 @@
             (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
           // Older single-medicine logs kept the dose in the log's own note.
           var desc = isWeight || isMood ? '' : isFood ? log.food : (row.med.note || (!log.routine && log.meds.length === 1 ? log.note : ''));
-          return '<div class="routine-row done">' +
+          return '<div class="routine-row routine-' + it.kind + ' done">' +
             '<div class="routine-check" aria-hidden="true">✓</div>' +
             '<div class="routine-main"><b>' + title + '</b>' +
               (desc ? '<span class="routine-desc">' + esc(desc) + '</span>' : '') +
@@ -477,7 +477,7 @@
         // default. Changes apply to this one log only.
         var noteKey = draftKey(it, 'note');
         var weightKey = draftKey(it, 'weight');
-        return '<div class="routine-row">' +
+        return '<div class="routine-row routine-' + it.kind + '">' +
           '<div class="routine-check" aria-hidden="true">✓</div>' +
           '<div class="routine-main"><b>' + title + '</b><span>Not yet today · ' + esc(routineRecency(p, it)) + '</span></div>' +
           '<div class="routine-actions">' +
@@ -691,7 +691,7 @@
     var sub = row.reading
       ? 'Latest ' + esc(fmtMeasureValue(ms, row.reading.v)) + (row.reading.t ? ' at ' + esc(timeText(row.reading.t)) : '') + ' · ' + row.count + ' today'
       : 'Not yet today · ' + esc(routineRecency(p, it));
-    return '<div class="routine-row' + (row.reading ? ' done' : '') + '">' +
+    return '<div class="routine-row routine-measure' + (row.reading ? ' done' : '') + '">' +
       '<div class="routine-check" aria-hidden="true">✓</div>' +
       '<div class="routine-main"><b>' + esc(ms.name) + '</b><span>' + sub + '</span></div>' +
       '<div class="routine-actions">' + input +
@@ -1292,6 +1292,14 @@
     var C = chartColors();
     var canvas = $('chart');
     if (!canvas) return;
+    // The app shell is installable/offline-capable, but Chart.js is delivered
+    // by a CDN. On a first-ever offline launch, keep the rest of the tracker
+    // usable instead of letting a missing chart library stop startup.
+    if (typeof Chart === 'undefined') {
+      if (chart) { chart.destroy(); chart = null; }
+      $('chartSummary').textContent = 'Trend charts will be available when you are online.';
+      return;
+    }
     var mode = $('chartMode').value;
     // Time range: only logs from the chosen period (30 / 90 / 365 days, or all)
     var range = $('chartRange').value;

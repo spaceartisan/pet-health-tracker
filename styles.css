@@ -996,6 +996,42 @@ h1 {
 .mood-btn:hover { background: var(--sage); color: var(--on-accent); }
 @media (max-width: 420px) { .mood-btn { min-width: 30px; min-height: 30px; } }
 
+
+/* Keep value-heavy routine rows readable on phones.  Weight and mood have
+   wider inline controls than the other quick-log items, so on narrow screens
+   their controls drop beneath the label/status instead of squeezing the text. */
+@media (max-width: 560px) {
+  .routine-row.routine-weight,
+  .routine-row.routine-mood {
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: start;
+  }
+  .routine-row.routine-weight .routine-check,
+  .routine-row.routine-mood .routine-check {
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+  .routine-row.routine-weight .routine-actions,
+  .routine-row.routine-mood .routine-actions {
+    grid-column: 2;
+    min-width: 0;
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .routine-row.routine-weight .routine-actions input {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 72px;
+  }
+  .routine-row.routine-weight .routine-actions .wt-oz {
+    width: 64px;
+    flex: 0 1 64px;
+  }
+  .routine-row.routine-mood .routine-actions { gap: 4px; }
+  .routine-row.routine-mood .routine-actions .star { margin-left: auto; }
+}
+
 /* ============ CUSTOM MEASURES ============ */
 .measure-tools { display: flex; align-items: center; gap: 8px; }
 .measure-time { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
