@@ -1517,6 +1517,45 @@ async function foodMoodRoutine() {
 }
 
 // =====================================================================
+// STRUCTURED FOOD INTAKE + QUICK FOODS (version 6)
+// =====================================================================
+async function foodAmountsV6() {
+  resetServer({ [CODE]: vault(CODE) });
+  const A = openApp(makeClient('phone'), linked(CODE, vault(CODE)));
+  await settle();
+  A.click('manageFoodsBtn');
+  A.type(A.$('fpName'), 'Fancy Feast Chicken');
+  A.type(A.$('fpDefaultAmount'), '1');
+  A.$('fpDefaultUnit').value = 'can';
+  A.type(A.$('fpPackageAmount'), '5');
+  A.$('fpPackageUnit').value = 'oz';
+  A.type(A.$('fpKcal'), '90');
+  A.type(A.$('fpKcalBasisAmount'), '1');
+  A.$('fpKcalBasisUnit').value = 'can';
+  A.click('fpSave'); await settle();
+  const pepper = A.state().pets.find((p) => p.id === 'p-pepper');
+  const fp = (pepper.foodPresets || []).find((f) => f.name === 'Fancy Feast Chicken');
+  check('food preset saves amount, package size and calorie basis', fp && fp.defaultUnit === 'can' && fp.packageAmount === 5 && fp.packageUnit === 'oz' && fp.kcal === 90 && fp.kcalBasisUnit === 'can', fp);
+  A.click('modalClose');
+  const quick = [...A.d.querySelectorAll('#foodQuick [data-food-quick]')].find((b) => b.textContent === 'Fancy Feast Chicken');
+  check('saved food appears as a quick choice', !!quick);
+  quick.click();
+  check('quick choice fills its defaults', A.$('rFood').value === 'Fancy Feast Chicken' && A.$('rFoodAmount').value === '1' && A.$('rFoodUnit').value === 'can');
+  A.type(A.$('rFoodAmount'), '1.35');
+  check('calorie preview uses the configured kcal per can', /121\.5 kcal eaten/.test(A.$('foodKcalPreview').textContent), A.$('foodKcalPreview').textContent);
+  A.submit(); await settle();
+  const log = A.state().records.find((r) => r.date === TODAY && r.food === 'Fancy Feast Chicken');
+  check('food log stores structured amount and frozen calories', log && log.foodAmount === 1.35 && log.foodUnit === 'can' && log.foodUnitSize === 5 && log.foodUnitSizeUnit === 'oz' && log.foodKcal === 121.5, log);
+  const card = log && A.d.querySelector('.record[data-id="' + log.id + '"]');
+  check('log shows can size, amount and calories', card && /1\.35 × 5 oz cans/.test(card.textContent) && /121\.5 kcal/.test(card.textContent), card && card.textContent);
+  A.editLog(log.id);
+  check('editing restores food amount and unit', A.$('rFoodAmount').value === '1.35' && A.$('rFoodUnit').value === 'can' && A.$('rFood').value === 'Fancy Feast Chicken');
+  A.click('clearForm');
+  check('no script errors', A.log.errors.length === 0, A.log.errors);
+  A.close();
+}
+
+// =====================================================================
 // VET SUMMARY (version 4): frequency, food, mood, breakdowns, chart marks
 // =====================================================================
 async function vetSummaryV4() {
@@ -1809,6 +1848,7 @@ async function previousVersion() {
     await runGroup('Stool, vomit & vet type' + tag, stoolVomitVet);
     await runGroup('Add to last log' + tag, addToLastLog);
     await runGroup('Food & mood routine' + tag, foodMoodRoutine);
+    await runGroup('Food amounts & quick foods' + tag, foodAmountsV6);
     await runGroup('Vet summary v4' + tag, vetSummaryV4);
     await runGroup('Import v4 columns' + tag, importV4);
     await runGroup('Storage' + tag, storage);

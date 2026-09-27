@@ -19,7 +19,7 @@
   //   2. Push, and wait until the new version is live on GitHub Pages.
   //   3. Bump minVersion() in the Firestore rules to match, then Publish.
   // Updates that don't need this can be pushed without changing any of them.
-  var DATA_VERSION = 5; // 3: symptom/play labels, play size. 4: Stool; vomit/stool labels; vet visit type. 5: custom measures (readings)
+  var DATA_VERSION = 6; // 3: symptom/play labels. 4: Stool/vet labels. 5: custom measures. 6: structured food amounts + food presets
   var newerDataSeen = false;
   var updateNotice = '';   // message for the reload banner, if any
   var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
@@ -44,6 +44,18 @@
   var VET_TYPES = { scheduled: 'Scheduled', unscheduled: 'Unscheduled', emergency: 'Emergency' };
   // Routine items there's one of per pet (medicines can be several). Read while loading saved data.
   var ROUTINE_SINGLES = { weight: 'Weigh-in', food: 'Food', mood: 'Mood' };
+  var FOOD_PRESET_LIMIT = 30;
+  var FOOD_UNITS = {
+    can: { one: 'can', many: 'cans', kind: 'count' },
+    pouch: { one: 'pouch', many: 'pouches', kind: 'count' },
+    cup: { one: 'cup', many: 'cups', kind: 'count' },
+    serving: { one: 'serving', many: 'servings', kind: 'count' },
+    piece: { one: 'piece', many: 'pieces', kind: 'count' },
+    g: { one: 'g', many: 'g', kind: 'mass', grams: 1 },
+    oz: { one: 'oz', many: 'oz', kind: 'mass', grams: 28.349523125 },
+    kg: { one: 'kg', many: 'kg', kind: 'mass', grams: 1000 },
+    lb: { one: 'lb', many: 'lb', kind: 'mass', grams: 453.59237 }
+  };
   var MEASURE_LIMIT = 10;        // custom measures per pet
   var editingKeepReadings = [];  // readings on the log being edited that the form doesn't show
   var formLabels = { symptom: [], vomit: [], stool: [], play: [] };
@@ -103,6 +115,8 @@
     renderSummary();
     renderToday();
     refreshSuggestions();
+    renderFoodQuick();
+    updateFoodPreview();
     renderStars();
     renderRecords();
     refreshChartOptions();
@@ -221,19 +235,19 @@
 
     $('records').innerHTML = rs.map(function (r) {
       var bits = [];
+      var rp = state.pets.find(function (x) { return x.id === r.petId; });
       // Every value is escaped: vault data can be written by anyone with the code.
       if (has(r.weight)) bits.push('Wt ' + esc(fmtWeight(r.weight)));
       if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
       if (has(r.activity)) bits.push(esc(r.activity) + ' min');
       if (has(r.cost) && Number(r.cost) > 0) bits.push('$' + Number(r.cost).toFixed(2));
-      if (r.food) bits.push(esc(r.food));
+      if (r.food) bits.push(esc(foodLogText(r, rp)));
       if (r.playSize) bits.push(esc(PLAY_SIZES[r.playSize] || r.playSize) + ' play');
       (r.playKinds || []).forEach(function (k) { bits.push(esc(k)); });
       (r.symptoms || []).forEach(function (k) { bits.push(esc(k)); });
       (r.vomitKinds || []).forEach(function (k) { bits.push(esc(k)); });
       (r.stoolKinds || []).forEach(function (k) { bits.push(esc(k)); });
       if (VET_TYPES[r.vetType]) bits.push(esc(VET_TYPES[r.vetType]) + ' visit');
-      var rp = state.pets.find(function (x) { return x.id === r.petId; });
       (r.readings || []).forEach(function (x) {
         var ms = measureById(rp, x.m);
         if (!ms) return;
@@ -346,6 +360,239 @@
     state.records.forEach(function (r) { if (r.petId === petId && r.food) f = r.food; });
     return f;
   }
+
+  // ===== FOOD PRESETS / AMOUNTS =====
+  function foodUnitLabel(unit, amount) {
+    var u = FOOD_UNITS[unit] || { one: unit || '', many: unit || '' };
+    return Math.abs(Number(amount) - 1) < 1e-9 ? u.one : u.many;
+  }
+  function foodUnitOptions(selected) {
+    return Object.keys(FOOD_UNITS).map(function (u) {
+      return '<option value="' + esc(u) + '"' + (u === selected ? ' selected' : '') + '>' + esc(FOOD_UNITS[u].one) + '</option>';
+    }).join('');
+  }
+  function petFoodPresets(pet) { return pet && Array.isArray(pet.foodPresets) ? pet.foodPresets : []; }
+  function foodPresetById(pet, id) {
+    if (!pet || !id) return null;
+    return petFoodPresets(pet).find(function (f) { return f.id === id; }) || null;
+  }
+  function foodPresetForName(pet, name) {
+    var k = normName(name);
+    if (!k) return null;
+    return petFoodPresets(pet).find(function (f) { return normName(f.name) === k; }) || null;
+  }
+  function normalizeFoodPreset(raw) {
+    raw = raw || {};
+    var f = {
+      id: raw.id || uid(),
+      name: String(raw.name || '').trim().replace(/\s+/g, ' '),
+      defaultAmount: raw.defaultAmount === '' || raw.defaultAmount == null ? 1 : Number(raw.defaultAmount),
+      defaultUnit: FOOD_UNITS[raw.defaultUnit] ? raw.defaultUnit : 'can',
+      packageAmount: raw.packageAmount === '' || raw.packageAmount == null ? '' : Number(raw.packageAmount),
+      packageUnit: FOOD_UNITS[raw.packageUnit] && FOOD_UNITS[raw.packageUnit].kind === 'mass' ? raw.packageUnit : 'oz',
+      kcal: raw.kcal === '' || raw.kcal == null ? '' : Number(raw.kcal),
+      kcalBasisAmount: raw.kcalBasisAmount === '' || raw.kcalBasisAmount == null ? 1 : Number(raw.kcalBasisAmount),
+      kcalBasisUnit: FOOD_UNITS[raw.kcalBasisUnit] ? raw.kcalBasisUnit : (FOOD_UNITS[raw.defaultUnit] ? raw.defaultUnit : 'can')
+    };
+    if (!(f.defaultAmount > 0)) f.defaultAmount = 1;
+    if (!(f.packageAmount > 0)) f.packageAmount = '';
+    if (!(f.kcal > 0)) f.kcal = '';
+    if (!(f.kcalBasisAmount > 0)) f.kcalBasisAmount = 1;
+    return f;
+  }
+  function foodPackageMassGrams(preset) {
+    if (!preset || !(Number(preset.packageAmount) > 0)) return '';
+    var u = FOOD_UNITS[preset.packageUnit];
+    if (!u || u.kind !== 'mass') return '';
+    return Number(preset.packageAmount) * u.grams;
+  }
+  function convertFoodAmount(value, fromUnit, toUnit, preset) {
+    value = Number(value);
+    if (!(value >= 0) || !FOOD_UNITS[fromUnit] || !FOOD_UNITS[toUnit]) return '';
+    if (fromUnit === toUnit) return value;
+    var from = FOOD_UNITS[fromUnit], to = FOOD_UNITS[toUnit];
+    if (from.kind === 'mass' && to.kind === 'mass') return value * from.grams / to.grams;
+    var packG = foodPackageMassGrams(preset);
+    if (!(packG > 0)) return '';
+    // A configured can/pouch/serving can be converted to its net weight and back.
+    if (from.kind === 'count' && fromUnit === preset.defaultUnit && to.kind === 'mass') return value * packG / to.grams;
+    if (from.kind === 'mass' && to.kind === 'count' && toUnit === preset.defaultUnit) return value * from.grams / packG;
+    return '';
+  }
+  function foodKcalFor(preset, amount, unit) {
+    if (!preset || !(Number(preset.kcal) > 0) || !(Number(amount) > 0)) return '';
+    var inBasis = convertFoodAmount(Number(amount), unit, preset.kcalBasisUnit, preset);
+    if (inBasis === '' || !(Number(preset.kcalBasisAmount) > 0)) return '';
+    return Math.round((Number(preset.kcal) * inBasis / Number(preset.kcalBasisAmount)) * 100) / 100;
+  }
+  function foodPresetSummary(f) {
+    var bits = [];
+    if (Number(f.defaultAmount) > 0) bits.push(trimNum(f.defaultAmount, 3) + ' ' + foodUnitLabel(f.defaultUnit, f.defaultAmount) + ' default');
+    if (Number(f.packageAmount) > 0 && FOOD_UNITS[f.defaultUnit] && FOOD_UNITS[f.defaultUnit].kind === 'count') {
+      bits.push(trimNum(f.packageAmount, 3) + ' ' + f.packageUnit + ' each');
+    }
+    if (Number(f.kcal) > 0) bits.push(trimNum(f.kcal, 2) + ' kcal / ' + trimNum(f.kcalBasisAmount || 1, 3) + ' ' + foodUnitLabel(f.kcalBasisUnit, f.kcalBasisAmount || 1));
+    return bits.join(' · ');
+  }
+  function foodAmountText(record, pet) {
+    if (!record || !(Number(record.foodAmount) > 0) || !record.foodUnit) return '';
+    var amount = Number(record.foodAmount);
+    var unit = record.foodUnit;
+    var preset = foodPresetById(pet, record.foodPresetId) || foodPresetForName(pet, record.food);
+    // A preset's package weight describes its default count unit (for example,
+    // a 5 oz can). Only borrow that live preset size when the logged count unit
+    // is the same; frozen size fields on older logs are always trusted.
+    var frozenPack = Number(record.foodUnitSize) > 0 && record.foodUnitSizeUnit;
+    var presetPack = preset && unit === preset.defaultUnit && Number(preset.packageAmount) > 0;
+    var packAmount = frozenPack ? Number(record.foodUnitSize) : (presetPack ? Number(preset.packageAmount) : '');
+    var packUnit = frozenPack ? record.foodUnitSizeUnit : (presetPack ? preset.packageUnit : '');
+    if (FOOD_UNITS[unit] && FOOD_UNITS[unit].kind === 'count' && packAmount && packUnit) {
+      return trimNum(amount, 3) + ' × ' + trimNum(packAmount, 3) + ' ' + packUnit + ' ' + foodUnitLabel(unit, amount);
+    }
+    return trimNum(amount, 3) + ' ' + foodUnitLabel(unit, amount);
+  }
+  function foodLogText(record, pet) {
+    if (!record || !record.food) return '';
+    var text = record.food;
+    var amt = foodAmountText(record, pet);
+    if (amt) text += ' · ' + amt;
+    if (Number(record.foodKcal) > 0) text += ' · ' + trimNum(record.foodKcal, 1) + ' kcal';
+    return text;
+  }
+  function currentFoodPreset() {
+    var p = formPet();
+    if (!p) return null;
+    return foodPresetById(p, $('rFoodPresetId').value) || foodPresetForName(p, $('rFood').value);
+  }
+  function updateFoodPreview() {
+    if (!$ || !$('foodKcalPreview')) return;
+    var p = formPet();
+    var preset = currentFoodPreset();
+    var amount = Number($('rFoodAmount').value);
+    var unit = $('rFoodUnit').value;
+    var bits = [];
+    if (preset) {
+      if (Number(preset.packageAmount) > 0 && FOOD_UNITS[preset.defaultUnit] && FOOD_UNITS[preset.defaultUnit].kind === 'count') {
+        bits.push(trimNum(preset.packageAmount, 3) + ' ' + preset.packageUnit + ' per ' + FOOD_UNITS[preset.defaultUnit].one);
+      }
+      if (Number(preset.kcal) > 0) bits.push(trimNum(preset.kcal, 2) + ' kcal per ' + trimNum(preset.kcalBasisAmount || 1, 3) + ' ' + foodUnitLabel(preset.kcalBasisUnit, preset.kcalBasisAmount || 1));
+      var kcal = foodKcalFor(preset, amount, unit);
+      if (kcal !== '') bits.push('<strong>≈ ' + esc(trimNum(kcal, 1)) + ' kcal eaten</strong>');
+      else if (amount > 0 && Number(preset.kcal) > 0) bits.push('Calorie conversion needs matching units' + (foodPackageMassGrams(preset) ? '' : ' or a package weight'));
+    } else if ($('rFood').value.trim()) {
+      bits.push('Save this food under ⚙ Foods to enable one-tap defaults and calorie estimates.');
+    }
+    $('foodKcalPreview').innerHTML = bits.join(' · ');
+  }
+  function applyFoodPresetToForm(preset, useDefaultAmount) {
+    if (!preset) return;
+    $('rFoodPresetId').value = preset.id;
+    $('rFood').value = preset.name;
+    $('rFoodUnit').value = preset.defaultUnit;
+    if (useDefaultAmount || !$('rFoodAmount').value) $('rFoodAmount').value = Number(preset.defaultAmount) > 0 ? trimNum(preset.defaultAmount, 3) : '';
+    updateFoodPreview();
+    renderStars();
+  }
+  function renderFoodQuick() {
+    if (!$ || !$('foodQuick')) return;
+    var p = formPet();
+    var foods = petFoodPresets(p);
+    var box = $('foodQuick');
+    box.hidden = !foods.length;
+    box.innerHTML = foods.map(function (f) {
+      return '<button class="chip" type="button" data-food-quick="' + esc(f.id) + '" title="' + esc(foodPresetSummary(f)) + '">' + esc(f.name) + '</button>';
+    }).join('');
+    box.querySelectorAll('[data-food-quick]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var fp = foodPresetById(formPet(), b.getAttribute('data-food-quick'));
+        applyFoodPresetToForm(fp, true);
+        $('rFoodAmount').focus();
+      });
+    });
+  }
+  function openFoodManager() {
+    var p = formPet() || activePet();
+    if (!p) return toast('Add a pet first');
+    modalTitle.textContent = 'Foods for ' + p.name;
+    function draw(editId) {
+      var cur = state.pets.find(function (x) { return x.id === p.id; });
+      if (!cur) { closeModal(); return; }
+      var editing = editId ? foodPresetById(cur, editId) : null;
+      var f = editing || normalizeFoodPreset({ defaultUnit: 'can', kcalBasisUnit: 'can', defaultAmount: 1 });
+      var foods = petFoodPresets(cur);
+      modalBody.innerHTML =
+        '<div class="food-preset-form">' +
+          '<div class="food-preset-grid">' +
+            '<label class="field">Food / brand<input id="fpName" autocomplete="off" placeholder="Fancy Feast Chicken" value="' + esc(f.name) + '"></label>' +
+            '<label class="field">Default amount<input id="fpDefaultAmount" type="number" step="any" min="0" inputmode="decimal" value="' + esc(f.defaultAmount) + '"></label>' +
+            '<label class="field">Default logging unit<select id="fpDefaultUnit">' + foodUnitOptions(f.defaultUnit) + '</select></label>' +
+          '</div>' +
+          '<div class="food-package-grid">' +
+            '<label class="field">Package / serving net weight <input id="fpPackageAmount" type="number" step="any" min="0" inputmode="decimal" placeholder="optional" value="' + esc(f.packageAmount) + '"></label>' +
+            '<label class="field">Weight unit<select id="fpPackageUnit"><option value="oz"' + (f.packageUnit === 'oz' ? ' selected' : '') + '>oz</option><option value="g"' + (f.packageUnit === 'g' ? ' selected' : '') + '>g</option><option value="lb"' + (f.packageUnit === 'lb' ? ' selected' : '') + '>lb</option><option value="kg"' + (f.packageUnit === 'kg' ? ' selected' : '') + '>kg</option></select></label>' +
+          '</div>' +
+          '<div class="food-energy-grid">' +
+            '<label class="field">Calories<input id="fpKcal" type="number" step="any" min="0" inputmode="decimal" placeholder="optional" value="' + esc(f.kcal) + '"></label>' +
+            '<span class="food-energy-per">per</span>' +
+            '<label class="field">Basis amount<input id="fpKcalBasisAmount" type="number" step="any" min="0" inputmode="decimal" value="' + esc(f.kcalBasisAmount || 1) + '"></label>' +
+            '<label class="field">Basis unit<select id="fpKcalBasisUnit">' + foodUnitOptions(f.kcalBasisUnit) + '</select></label>' +
+          '</div>' +
+          '<p class="food-help">Examples: 90 kcal per 1 can, 75 kcal per 1 pouch, 110 kcal per 100 g, or 3,700 kcal per 1 kg. Add a package weight when you want the app to convert between cans/pouches and grams or ounces.</p>' +
+          '<div class="form-actions"><button class="sage" id="fpSave" type="button">' + (editing ? 'Save food' : 'Add food') + '</button>' +
+            (editing ? '<button class="ghost" id="fpCancel" type="button">Cancel edit</button>' : '') + '</div>' +
+        '</div>' +
+        (foods.length ? '<div class="food-preset-list">' + foods.map(function (x) {
+          return '<div class="food-preset-card"><div><b>' + esc(x.name) + '</b><span>' + esc(foodPresetSummary(x) || 'No calorie information') + '</span></div>' +
+            '<div class="food-preset-actions"><button class="ghost tiny" type="button" data-fp-use="' + esc(x.id) + '">Use</button><button class="ghost tiny" type="button" data-fp-edit="' + esc(x.id) + '">Edit</button><button class="ghost tiny" type="button" data-fp-delete="' + esc(x.id) + '">Delete</button></div></div>';
+        }).join('') + '</div>' : '<p class="routine-intro" style="margin-top:14px">No saved foods yet.</p>');
+
+      $('fpDefaultUnit').addEventListener('change', function () {
+        if (!$('fpKcal').value) $('fpKcalBasisUnit').value = $('fpDefaultUnit').value;
+      });
+      $('fpSave').addEventListener('click', function () {
+        var name = $('fpName').value.trim().replace(/\s+/g, ' ');
+        if (!name) return toast('Enter a food name');
+        var da = Number($('fpDefaultAmount').value);
+        if (!(da > 0)) return toast('Default amount must be greater than zero');
+        var paRaw = $('fpPackageAmount').value.trim();
+        var pa = paRaw === '' ? '' : Number(paRaw);
+        if (paRaw !== '' && !(pa > 0)) return toast('Check the package weight');
+        var kcalRaw = $('fpKcal').value.trim();
+        var kcal = kcalRaw === '' ? '' : Number(kcalRaw);
+        if (kcalRaw !== '' && !(kcal > 0)) return toast('Check the calories');
+        var kb = Number($('fpKcalBasisAmount').value);
+        if (kcal !== '' && !(kb > 0)) return toast('Calorie basis must be greater than zero');
+        var dup = petFoodPresets(cur).find(function (x) { return normName(x.name) === normName(name) && (!editing || x.id !== editing.id); });
+        if (dup) return toast('That food is already saved');
+        var out = normalizeFoodPreset({ id: editing ? editing.id : uid(), name: name, defaultAmount: da, defaultUnit: $('fpDefaultUnit').value,
+          packageAmount: pa, packageUnit: $('fpPackageUnit').value, kcal: kcal, kcalBasisAmount: kb, kcalBasisUnit: $('fpKcalBasisUnit').value });
+        if (editing) cur.foodPresets = petFoodPresets(cur).map(function (x) { return x.id === editing.id ? out : x; });
+        else {
+          if (petFoodPresets(cur).length >= FOOD_PRESET_LIMIT) return toast('Food list is limited to ' + FOOD_PRESET_LIMIT + ' items');
+          cur.foodPresets = petFoodPresets(cur).concat([out]);
+        }
+        delete cur.sample;
+        save();
+        render();
+        draw(null);
+        toast(editing ? 'Food updated' : 'Food saved');
+      });
+      if ($('fpCancel')) $('fpCancel').addEventListener('click', function () { draw(null); });
+      modalBody.querySelectorAll('[data-fp-edit]').forEach(function (b) { b.addEventListener('click', function () { draw(b.getAttribute('data-fp-edit')); }); });
+      modalBody.querySelectorAll('[data-fp-use]').forEach(function (b) { b.addEventListener('click', function () {
+        var fp = foodPresetById(cur, b.getAttribute('data-fp-use')); closeModal(); applyFoodPresetToForm(fp, true); $('rFoodAmount').focus();
+      }); });
+      modalBody.querySelectorAll('[data-fp-delete]').forEach(function (b) { b.addEventListener('click', function () {
+        var fp = foodPresetById(cur, b.getAttribute('data-fp-delete'));
+        if (!fp || !confirm('Delete ' + fp.name + ' from quick foods? Existing logs stay unchanged.')) return;
+        cur.foodPresets = petFoodPresets(cur).filter(function (x) { return x.id !== fp.id; });
+        (cur.routine || []).forEach(function (it) { if (it.foodPresetId === fp.id) delete it.foodPresetId; });
+        save(); render(); draw(null); toast('Food removed');
+      }); });
+    }
+    draw(null);
+    openModal();
+  }
   // Add or remove a daily item. item: { kind: 'weight' } or { kind: 'medication', med, note }.
   function toggleRoutine(pet, item) {
     if (!pet) return toast('Add a pet first');
@@ -367,7 +614,7 @@
       if (!single && !name) return toast('Enter a medicine name first');
       var entry = item.kind === 'weight' ? { id: uid(), kind: 'weight' }
         : item.kind === 'mood' ? { id: uid(), kind: 'mood' }
-        : item.kind === 'food' ? { id: uid(), kind: 'food', note: String(item.note || '').trim() || lastFood(pet.id) }
+        : item.kind === 'food' ? { id: uid(), kind: 'food', note: String(item.note || '').trim() || lastFood(pet.id), foodPresetId: item.foodPresetId || '', foodAmount: item.foodAmount === '' || item.foodAmount == null ? '' : Number(item.foodAmount), foodUnit: FOOD_UNITS[item.foodUnit] ? item.foodUnit : 'can' }
         : { id: uid(), kind: 'medication', med: name, note: String(item.note || '').trim() || lastMedNote(state.records, pet.id, name) };
       pet.routine = (pet.routine || []).concat([entry]);
       delete pet.sample; // a demo pet with a routine is now the user's own
@@ -464,7 +711,7 @@
           var sub = (isWeight ? esc(fmtWeight(log.weight)) + ' · ' : isMood ? 'Mood ' + esc(log.mood) + '/5 · ' : '') +
             (at ? 'Logged ' + esc(timeOf(at)) : 'Logged today');
           // Older single-medicine logs kept the dose in the log's own note.
-          var desc = isWeight || isMood ? '' : isFood ? log.food : (row.med.note || (!log.routine && log.meds.length === 1 ? log.note : ''));
+          var desc = isWeight || isMood ? '' : isFood ? foodLogText(log, p) : (row.med.note || (!log.routine && log.meds.length === 1 ? log.note : ''));
           return '<div class="routine-row routine-' + it.kind + ' done">' +
             '<div class="routine-check" aria-hidden="true">✓</div>' +
             '<div class="routine-main"><b>' + title + '</b>' +
@@ -502,7 +749,8 @@
             '<div class="routine-desc-wrap">' +
               '<input class="routine-desc-input" data-row="' + i + '" data-field="note" data-draft="' + esc(noteKey) + '"' +
                 ' value="' + esc(draftOr(it, 'note', it.note || '')) + '"' +
-                ' placeholder="' + (isFood ? 'Food / amount' : 'Dose / note (optional)') + '" aria-label="' + (isFood ? 'Food' : 'Note for ' + esc(it.med)) + '">' +
+                ' placeholder="' + (isFood ? 'Food / brand' : 'Dose / note (optional)') + '" aria-label="' + (isFood ? 'Food' : 'Note for ' + esc(it.med)) + '">' +
+              (isFood ? '<span class="food-routine-amount"><input type="number" step="any" min="0" inputmode="decimal" data-row="' + i + '" data-field="foodAmount" data-draft="' + esc(draftKey(it, 'foodAmount')) + '" placeholder="amount" aria-label="Food amount" value="' + esc(draftOr(it, 'foodAmount', it.foodAmount || '')) + '"><select data-row="' + i + '" data-field="foodUnit" data-draft="' + esc(draftKey(it, 'foodUnit')) + '" aria-label="Food unit">' + foodUnitOptions(draftOr(it, 'foodUnit', it.foodUnit || 'can')) + '</select></span>' : '') +
               // Shown once the dose differs from the saved default
               '<button class="ghost tiny" data-default="' + i + '" type="button"' +
                 (String(draftOr(it, 'note', it.note || '')).trim() === String(it.note || '').trim() ? ' hidden' : '') +
@@ -521,7 +769,7 @@
     function entry(i) {
       var lbEl = list.querySelector('[data-row="' + i + '"][data-field="weight"]');
       var ozEl = list.querySelector('[data-row="' + i + '"][data-field="weightOz"]');
-      return { item: rows[i].item, note: field(i, 'note'), weight: lbEl ? readWeight(lbEl, ozEl) : '' };
+      return { item: rows[i].item, note: field(i, 'note'), weight: lbEl ? readWeight(lbEl, ozEl) : '', foodAmount: field(i, 'foodAmount'), foodUnit: field(i, 'foodUnit') };
     }
 
     list.querySelectorAll('[data-draft]').forEach(function (input) {
@@ -571,19 +819,40 @@
     list.querySelectorAll('[data-undo]').forEach(function (b) {
       b.addEventListener('click', function () { undoRoutineLog(rows[Number(b.getAttribute('data-undo'))]); });
     });
-    // Changing the dose in a row offers to save it as the medicine's default.
+    // Changing a dose/food row offers to save it as the routine default.
     list.querySelectorAll('[data-default]').forEach(function (b) {
       var i = Number(b.getAttribute('data-default'));
       var input = list.querySelector('[data-row="' + i + '"][data-field="note"]');
-      input.addEventListener('input', function () {
-        b.hidden = input.value.trim() === String(rows[i].item.note || '').trim();
-      });
+      var amountInput = list.querySelector('[data-row="' + i + '"][data-field="foodAmount"]');
+      var unitInput = list.querySelector('[data-row="' + i + '"][data-field="foodUnit"]');
+      function refreshDefaultButton() {
+        var it = rows[i].item;
+        var changed = input.value.trim() !== String(it.note || '').trim();
+        if (it.kind === 'food') {
+          changed = changed || String(amountInput ? amountInput.value : '') !== String(it.foodAmount == null ? '' : it.foodAmount) ||
+            String(unitInput ? unitInput.value : '') !== String(it.foodUnit || 'can');
+        }
+        b.hidden = !changed;
+      }
+      input.addEventListener('input', refreshDefaultButton);
+      if (amountInput) amountInput.addEventListener('input', refreshDefaultButton);
+      if (unitInput) unitInput.addEventListener('change', refreshDefaultButton);
+      refreshDefaultButton();
       b.addEventListener('click', function () {
         var cur = state.pets.find(function (x) { return x.id === p.id; });
         var item = cur && (cur.routine || []).find(function (it) { return it.id === rows[i].item.id; });
         if (!item) return toast('This item was removed on another device');
         item.note = input.value.trim();
+        if (item.kind === 'food') {
+          var av = amountInput ? amountInput.value.trim() : '';
+          item.foodAmount = av === '' ? '' : Number(av);
+          item.foodUnit = unitInput && FOOD_UNITS[unitInput.value] ? unitInput.value : 'can';
+          var fp = foodPresetForName(cur, item.note);
+          item.foodPresetId = fp ? fp.id : '';
+        }
         delete routineDrafts[p.id + ':' + item.id + ':note'];
+        delete routineDrafts[p.id + ':' + item.id + ':foodAmount'];
+        delete routineDrafts[p.id + ':' + item.id + ':foodUnit'];
         save();
         render();
         toast('New default for ' + routineTitle(item));
@@ -618,7 +887,7 @@
   // a weigh-in left blank is skipped instead of blocking the others.
   function logRoutineItems(petId, entries, lenient) {
     var now = new Date().toISOString();
-    var meds = [], weight = '', food = '', mood = '';
+    var meds = [], weight = '', food = '', foodData = null, mood = '';
     for (var i = 0; i < entries.length; i++) {
       var en = entries[i], it = en.item;
       if (it.kind === 'weight') {
@@ -630,7 +899,13 @@
       } else if (it.kind === 'food') {
         var fd = String(en.note || '').trim();
         if (!fd) { if (lenient) continue; return toast('Enter the food first'); }
+        var fa = String(en.foodAmount == null ? '' : en.foodAmount).trim();
+        if (fa !== '' && !(Number(fa) > 0)) { if (lenient) continue; return toast('Check the food amount'); }
+        var fu = FOOD_UNITS[en.foodUnit] ? en.foodUnit : (FOOD_UNITS[it.foodUnit] ? it.foodUnit : 'can');
+        var pet = state.pets.find(function (x) { return x.id === petId; });
+        var fp = foodPresetById(pet, it.foodPresetId) || foodPresetForName(pet, fd);
         food = fd;
+        foodData = { amount: fa === '' ? '' : Number(fa), unit: fu, preset: fp };
       } else if (it.kind === 'mood') {
         if (!(en.mood >= 1 && en.mood <= 5)) continue; // logged with its own 1–5 buttons
         mood = en.mood;
@@ -648,17 +923,37 @@
     }
     target.meds = target.meds.concat(meds);
     // A second weigh-in (or food, or mood) keeps its own log so both survive.
-    [['weight', weight], ['food', food], ['mood', mood]].forEach(function (pair) {
+    [['weight', weight], ['mood', mood]].forEach(function (pair) {
       if (pair[1] === '') return;
       var t = target;
       if (has(t[pair[0]])) { t = blankRecord(petId, today()); t.loggedAt = now; t.routine = true; state.records.push(t); }
       t[pair[0]] = pair[1];
     });
+    if (food !== '') {
+      var ft = target;
+      if (has(ft.food)) { ft = blankRecord(petId, today()); ft.loggedAt = now; ft.routine = true; state.records.push(ft); }
+      ft.food = food;
+      if (foodData && foodData.amount !== '') {
+        ft.foodAmount = foodData.amount;
+        ft.foodUnit = foodData.unit;
+        if (foodData.preset) {
+          ft.foodPresetId = foodData.preset.id;
+          if (Number(foodData.preset.packageAmount) > 0 && foodData.unit === foodData.preset.defaultUnit && FOOD_UNITS[foodData.unit] && FOOD_UNITS[foodData.unit].kind === 'count') {
+            ft.foodUnitSize = Number(foodData.preset.packageAmount);
+            ft.foodUnitSizeUnit = foodData.preset.packageUnit;
+          }
+          var fk = foodKcalFor(foodData.preset, foodData.amount, foodData.unit);
+          if (fk !== '') ft.foodKcal = fk;
+        }
+      }
+    }
     // Logged: forget what was typed, so tomorrow starts from the default again.
     entries.forEach(function (en) {
       delete routineDrafts[petId + ':' + en.item.id + ':note'];
       delete routineDrafts[petId + ':' + en.item.id + ':weight'];
       delete routineDrafts[petId + ':' + en.item.id + ':weightOz'];
+      delete routineDrafts[petId + ':' + en.item.id + ':foodAmount'];
+      delete routineDrafts[petId + ':' + en.item.id + ':foodUnit'];
     });
     save();
     render();
@@ -727,7 +1022,10 @@
   function undoRoutineLog(row) {
     var r = row.log;
     if (row.med) r.meds = r.meds.filter(function (m) { return m !== row.med; });
-    else r[row.item.kind] = ''; // 'weight', 'food' or 'mood'
+    else {
+      r[row.item.kind] = ''; // 'weight', 'food' or 'mood'
+      if (row.item.kind === 'food') ['foodAmount', 'foodUnit', 'foodKcal', 'foodPresetId', 'foodUnitSize', 'foodUnitSizeUnit'].forEach(function (k) { r[k] = ''; });
+    }
     if (isBlankRecord(r)) state.records = state.records.filter(function (x) { return x.id !== r.id; });
     save();
     render();
@@ -787,8 +1085,13 @@
       });
     });
     $('medOptions').innerHTML = meds.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
-    $('foodOptions').innerHTML = topValues(state.records.map(function (r) { return r.food; }))
-      .map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
+    var foodNames = topValues(state.records.map(function (r) { return r.food; }));
+    state.pets.forEach(function (p) {
+      petFoodPresets(p).forEach(function (f) {
+        if (f.name && !foodNames.some(function (n) { return normName(n) === normName(f.name); })) foodNames.push(f.name);
+      });
+    });
+    $('foodOptions').innerHTML = foodNames.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
   }
 
   // ===== LOG FORM: TAGS, MEDICINE ROWS, ★ TOGGLES =====
@@ -1917,6 +2220,23 @@
     record.activity = num($('rActivity').value);
     record.cost = num($('rCost').value);
     record.food = $('rFood').value.trim();
+    var foodAmountRaw = $('rFoodAmount').value.trim();
+    if (foodAmountRaw !== '') {
+      record.foodAmount = Number(foodAmountRaw);
+      if (!(record.foodAmount > 0) || !isFinite(record.foodAmount)) { toast('Check the food amount'); return null; }
+      if (!record.food) { toast('Enter the food name'); return null; }
+      record.foodUnit = FOOD_UNITS[$('rFoodUnit').value] ? $('rFoodUnit').value : 'can';
+      var fp = foodPresetById(formPet(), $('rFoodPresetId').value) || foodPresetForName(formPet(), record.food);
+      if (fp) {
+        record.foodPresetId = fp.id;
+        if (Number(fp.packageAmount) > 0 && record.foodUnit === fp.defaultUnit && FOOD_UNITS[record.foodUnit] && FOOD_UNITS[record.foodUnit].kind === 'count') {
+          record.foodUnitSize = Number(fp.packageAmount);
+          record.foodUnitSizeUnit = fp.packageUnit;
+        }
+        var fk = foodKcalFor(fp, record.foodAmount, record.foodUnit);
+        if (fk !== '') record.foodKcal = fk;
+      }
+    }
     record.note = $('rNote').value.trim();
     record.meds = readMedRows();
     // Tags outside the chip set (kept from older data) survive an edit untouched.
@@ -1982,7 +2302,11 @@
     scalar('playSize', 'Play size', function (v) { return PLAY_SIZES[v] || v; });
     scalar('vetType', 'Visit type', function (v) { return VET_TYPES[v] || v; });
     if (conflicts.length && !confirm('That log already has:\n\n' + conflicts.join('\n') + '\n\nReplace with the new values?')) return;
-    ['weight', 'mood', 'activity', 'cost', 'food', 'playSize', 'vetType'].forEach(function (f) { if (has(add[f])) target[f] = add[f]; });
+    ['weight', 'mood', 'activity', 'cost', 'playSize', 'vetType'].forEach(function (f) { if (has(add[f])) target[f] = add[f]; });
+    if (has(add.food)) {
+      target.food = add.food;
+      ['foodAmount', 'foodUnit', 'foodKcal', 'foodPresetId', 'foodUnitSize', 'foodUnitSizeUnit'].forEach(function (f) { target[f] = add[f] || ''; });
+    }
     add.meds.forEach(function (m) {
       var dup = target.meds.some(function (x) { return normName(x.name) === normName(m.name) && normName(x.note) === normName(m.note); });
       if (!dup) target.meds.push(m);
@@ -2051,6 +2375,10 @@
     $('rActivity').value = r.activity;
     $('rCost').value = r.cost;
     $('rFood').value = r.food || '';
+    $('rFoodAmount').value = has(r.foodAmount) ? r.foodAmount : '';
+    $('rFoodUnit').value = r.foodUnit || 'can';
+    $('rFoodPresetId').value = r.foodPresetId || '';
+    updateFoodPreview();
     $('rNote').value = r.note || '';
     fillFormReadings(r);
     setTags(r.tags);
@@ -2086,7 +2414,9 @@
   function clearRecordForm() {
     editingLogId = null;
     $('rId').value = '';
-    ['rMood', 'rWeight', 'rWeightOz', 'rActivity', 'rCost', 'rFood', 'rNote', 'rTime'].forEach(function (id) { $(id).value = ''; });
+    ['rMood', 'rWeight', 'rWeightOz', 'rActivity', 'rCost', 'rFood', 'rFoodAmount', 'rFoodPresetId', 'rNote', 'rTime'].forEach(function (id) { $(id).value = ''; });
+    $('rFoodUnit').value = 'can';
+    updateFoodPreview();
     editingKeepReadings = [];
     document.querySelectorAll('#measureRows [data-measure]').forEach(function (el) { el.value = ''; });
     $('rDate').value = today();
@@ -2111,13 +2441,13 @@
   }
 
   function exportCsv() {
-    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'medications', 'readings', 'note']];
+    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'food amount', 'food unit', 'food kcal', 'food unit size', 'food unit size unit', 'medications', 'readings', 'note']];
     state.records.forEach(function (r) {
       var p = state.pets.find(function (x) { return x.id === r.petId; }) || {};
       var meds = r.meds.map(function (m) { return m.name + (m.note ? ' (' + m.note + ')' : ''); }).join('; ');
       rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), (r.symptoms || []).join('; '),
         (r.vomitKinds || []).join('; '), (r.stoolKinds || []).join('; '), r.vetType || '', r.playSize || '', (r.playKinds || []).join('; '),
-        r.weight, r.mood, r.activity, r.cost, r.food, meds, readingsText(p, r), r.note]);
+        r.weight, r.mood, r.activity, r.cost, r.food, r.foodAmount, r.foodUnit, r.foodKcal, r.foodUnitSize, r.foodUnitSizeUnit, meds, readingsText(p, r), r.note]);
     });
     var csv = rows.map(function (row) {
       return row.map(function (x) { return '"' + String(x == null ? '' : x).replace(/"/g, '""') + '"'; }).join(',');
@@ -2153,14 +2483,14 @@
     var p = activePet();
     var name = p ? p.name : 'Luna';
     var rows = [
-      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'food', 'mood', 'activity', 'cost', 'note', 'readings'],
-      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.', ''],
-      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', '', 'Blood glucose=142 @08:00'],
-      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', '', '', '', 'Restless all evening', ''],
-      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', 'Big play at 10 pm', ''],
-      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', 'New kibble', '', '', '', '', ''],
-      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', '', ''],
-      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', 'scheduled', '', '', '', '', '', '85', 'Annual checkup (' + name + ')', '']
+      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'food', 'food amount', 'food unit', 'food kcal', 'mood', 'activity', 'cost', 'note', 'readings'],
+      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.', ''],
+      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Blood glucose=142 @08:00'],
+      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', '', '', '', '', '', '', 'Restless all evening', ''],
+      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', '', '', '', 'Big play at 10 pm', ''],
+      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', 'Fancy Feast Chicken', '1.35', 'can', '122', '', '', '', '1.35 cans eaten', ''],
+      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', '', '', '', '', ''],
+      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', 'scheduled', '', '', '', '', '', '', '', '', '85', 'Annual checkup (' + name + ')', '']
     ];
     download('pet-health-import-template.csv', rows.map(csvLine).join('\n'), 'text/csv');
     toast('Template downloaded');
@@ -2216,7 +2546,7 @@
   function logSignature(r) {
     function t(x) { return String(x == null ? '' : x).trim().toLowerCase().replace(/\s+/g, ' '); }
     function n(x) { return has(x) && isFinite(Number(x)) ? Math.round(Number(x) * 1000) / 1000 : ''; }
-    return JSON.stringify([r.petId, r.date, n(r.weight), n(r.mood), n(r.activity), n(r.cost), t(r.food), t(r.note),
+    return JSON.stringify([r.petId, r.date, n(r.weight), n(r.mood), n(r.activity), n(r.cost), t(r.food), n(r.foodAmount), t(r.foodUnit), n(r.foodKcal), t(r.note),
       (r.meds || []).map(function (m) { return t(m.name) + '|' + t(m.note); }).sort(),
       (r.tags || []).slice().sort(), (r.symptoms || []).map(t).sort(), t(r.playSize), (r.playKinds || []).map(t).sort(),
       (r.vomitKinds || []).map(t).sort(), (r.stoolKinds || []).map(t).sort(), t(r.vetType),
@@ -2234,7 +2564,9 @@
       vomit: ['vomit', 'vomit labels'], stool: ['stool', 'stool labels'], vetType: ['vet type', 'visit type'],
       readings: ['readings', 'measurements', 'measures'],
       playSize: ['play size', 'size'], play: ['play', 'play labels'],
-      food: ['food', 'meal'], mood: ['mood'], activity: ['activity', 'activity minutes', 'minutes'],
+      food: ['food', 'meal'], foodAmount: ['food amount', 'amount eaten', 'meal amount'], foodUnit: ['food unit', 'meal unit'],
+      foodKcal: ['food kcal', 'calories eaten', 'kcal'], foodUnitSize: ['food unit size', 'package size'], foodUnitSizeUnit: ['food unit size unit', 'package size unit'],
+      mood: ['mood'], activity: ['activity', 'activity minutes', 'minutes'],
       cost: ['cost', 'price'], note: ['note', 'notes', 'description', 'comment']
     };
     var TAG_WORDS = { symptom: 'symptom', symptoms: 'symptom', vomit: 'vomit', vomiting: 'vomit', diarrhea: 'stool', diarrhoea: 'stool',
@@ -2372,6 +2704,22 @@
       rec.stoolKinds = stoolKinds;
       rec.vetType = vetType;
       rec.food = get('food');
+      var faText = get('foodAmount').replace(/,/g, '');
+      if (faText !== '') {
+        var fa = Number(faText);
+        if (!(fa > 0) || !isFinite(fa)) return problem('Food amount "' + get('foodAmount') + '" doesn\'t make sense');
+        if (!rec.food) return problem('Food amount was given without a food name');
+        rec.foodAmount = fa;
+        var fu = get('foodUnit').toLowerCase();
+        if (!FOOD_UNITS[fu]) return problem('Food unit "' + get('foodUnit') + '" isn\'t recognized');
+        rec.foodUnit = fu;
+        var fkText = get('foodKcal').replace(/,/g, '');
+        if (fkText !== '') { var fk = Number(fkText); if (!(fk > 0) || !isFinite(fk)) return problem('Food kcal "' + get('foodKcal') + '" doesn\'t make sense'); rec.foodKcal = fk; }
+        var fsText = get('foodUnitSize').replace(/,/g, '');
+        if (fsText !== '') { var fs = Number(fsText); if (!(fs > 0) || !isFinite(fs)) return problem('Food unit size "' + get('foodUnitSize') + '" doesn\'t make sense'); rec.foodUnitSize = fs; }
+        var fsu = get('foodUnitSizeUnit').toLowerCase();
+        if (fsu) { if (!FOOD_UNITS[fsu] || FOOD_UNITS[fsu].kind !== 'mass') return problem('Food unit size unit "' + get('foodUnitSizeUnit') + '" isn\'t a weight unit'); rec.foodUnitSizeUnit = fsu; }
+      }
       rec.mood = mood;
       rec.activity = activity;
       rec.cost = cost;
@@ -2661,6 +3009,9 @@
       else foods.push({ food: r.food, from: r.date, to: r.date, days: (function () { var o = {}; o[r.date] = true; return o; })() });
     });
     foods.forEach(function (f) { f.dayCount = Object.keys(f.days).length; delete f.days; });
+    var foodEntries = recs.filter(function (r) { return !!r.food; }).map(function (r) {
+      return { date: r.date, text: foodLogText(r, pet), amount: foodAmountText(r, pet), kcal: Number(r.foodKcal) > 0 ? Number(r.foodKcal) : '' };
+    });
 
     // Mood: average, and the lowest days
     var moods = recs.filter(function (r) { return has(r.mood) && isFinite(Number(r.mood)); })
@@ -2742,6 +3093,7 @@
     return {
       measures: measureStats,
       foods: foods,
+      foodEntries: foodEntries,
       mood: mood,
       visits: { count: visits.length, types: countLabels(visits.map(function (r) { return VET_TYPES[r.vetType] || ''; }).filter(Boolean)) },
       vomitLabels: countLabels([].concat.apply([], recs.filter(function (r) { return hasTag(r, 'vomit'); }).map(function (r) { return r.vomitKinds || []; }))),
@@ -2859,6 +3211,10 @@
           return '<tr><td>' + esc(f.food) + '</td><td>' + esc(shortDate(f.from)) + (f.to !== f.from ? ' – ' + esc(shortDate(f.to)) : '') + '</td><td>' + f.dayCount + '</td></tr>';
         }).join('') + '</table></div>';
       if (sum.foods.length > 1) h += '<p class="vr-muted">Each line is a change of food, in order.</p>';
+      if (sum.foodEntries.some(function (e) { return e.amount || e.kcal !== ''; })) {
+        h += '<h3 class="vr-sub">Recorded intake</h3><div class="vr-scroll"><table><tr><th>Date</th><th>Food / amount</th><th>Calories</th></tr>' +
+          sum.foodEntries.map(function (e) { return '<tr><td>' + esc(shortDate(e.date)) + '</td><td>' + esc(e.text.replace(/ · [^·]+ kcal$/, '')) + '</td><td>' + (e.kcal !== '' ? esc(trimNum(e.kcal, 1)) + ' kcal' : '—') + '</td></tr>'; }).join('') + '</table></div>';
+      }
     } else {
       h += '<p class="vr-muted">No food logged in this period.</p>';
     }
@@ -2917,7 +3273,7 @@
             var md = measureById(p, x.m);
             if (md) bits.push(esc(md.name) + ' ' + esc(fmtMeasureValue(md, x.v)) + (x.t ? ' at ' + esc(timeText(x.t)) : ''));
           });
-          if (r.food) bits.push('Food: ' + esc(r.food));
+          if (r.food) bits.push('Food: ' + esc(foodLogText(r, p)));
           if (has(r.activity)) bits.push('Activity ' + esc(r.activity) + ' min');
           if (has(r.mood)) bits.push('Mood ' + esc(r.mood) + '/5');
           if (has(r.cost)) bits.push('Cost $' + esc(r.cost));
@@ -3283,7 +3639,7 @@
   // Older logs had a single `type` and a single `med` string; they're converted
   // on every read, so data written by an older copy of the app still loads.
   function blankRecord(petId, date) {
-    return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', meds: [], tags: [], note: '',
+    return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', foodAmount: '', foodUnit: '', foodKcal: '', foodPresetId: '', foodUnitSize: '', foodUnitSizeUnit: '', meds: [], tags: [], note: '',
       symptoms: [], playSize: '', playKinds: [], vomitKinds: [], stoolKinds: [], vetType: '', readings: [] };
   }
   // A stool log marked as diarrhea (what used to be a Diarrhea log)
@@ -3295,6 +3651,15 @@
     var r = Object.assign({}, raw);
     ['weight', 'mood', 'activity', 'cost'].forEach(function (k) { if (r[k] == null) r[k] = ''; });
     r.food = r.food == null ? '' : String(r.food);
+    r.foodAmount = r.foodAmount === '' || r.foodAmount == null ? '' : Number(r.foodAmount);
+    if (r.foodAmount !== '' && (!(r.foodAmount > 0) || !isFinite(r.foodAmount))) r.foodAmount = '';
+    r.foodUnit = FOOD_UNITS[r.foodUnit] ? r.foodUnit : '';
+    r.foodKcal = r.foodKcal === '' || r.foodKcal == null ? '' : Number(r.foodKcal);
+    if (r.foodKcal !== '' && (!(r.foodKcal > 0) || !isFinite(r.foodKcal))) r.foodKcal = '';
+    r.foodPresetId = r.foodPresetId ? String(r.foodPresetId) : '';
+    r.foodUnitSize = r.foodUnitSize === '' || r.foodUnitSize == null ? '' : Number(r.foodUnitSize);
+    if (r.foodUnitSize !== '' && (!(r.foodUnitSize > 0) || !isFinite(r.foodUnitSize))) r.foodUnitSize = '';
+    r.foodUnitSizeUnit = FOOD_UNITS[r.foodUnitSizeUnit] && FOOD_UNITS[r.foodUnitSizeUnit].kind === 'mass' ? r.foodUnitSizeUnit : '';
     r.note = r.note == null ? '' : String(r.note);
     r.meds = (Array.isArray(r.meds) ? r.meds : []).filter(function (m) { return m && m.name; }).map(function (m) {
       var out = { name: String(m.name), note: m.note == null ? '' : String(m.note) };
@@ -3337,11 +3702,18 @@
       pets: Array.isArray(s && s.pets) ? s.pets.filter(Boolean) : [],
       records: Array.isArray(s && s.records) ? s.records.filter(Boolean).map(normalizeRecord) : []
     };
-    // Routine items from before per-medicine notes: adopt the last dose used.
+    // Per-pet quick foods are compact configuration, not separate logs.
     st.pets.forEach(function (p) {
+      p.foodPresets = (Array.isArray(p.foodPresets) ? p.foodPresets : []).filter(function (f) { return f && f.name; }).slice(0, FOOD_PRESET_LIMIT).map(normalizeFoodPreset);
       if (!Array.isArray(p.routine)) return;
       p.routine.forEach(function (it) {
         if (it && isMedItem(it) && typeof it.note !== 'string') it.note = lastMedNote(st.records, p.id, it.med);
+        if (it && it.kind === 'food') {
+          if (it.foodAmount !== '' && it.foodAmount != null && !(Number(it.foodAmount) > 0)) it.foodAmount = '';
+          if (it.foodAmount !== '' && it.foodAmount != null) it.foodAmount = Number(it.foodAmount);
+          if (!FOOD_UNITS[it.foodUnit]) it.foodUnit = 'can';
+          if (it.foodPresetId) it.foodPresetId = String(it.foodPresetId);
+        }
       });
     });
     return st;
@@ -3553,9 +3925,14 @@
   // tag, and any field that one side left empty takes the other side's value.
   function mergeRecord(remote, local) {
     var out = Object.assign({}, remote, local);
-    ['weight', 'mood', 'activity', 'cost', 'food', 'note'].forEach(function (k) {
+    ['weight', 'mood', 'activity', 'cost', 'note'].forEach(function (k) {
       if (!has(local[k]) && has(remote[k])) out[k] = remote[k];
     });
+    if (!has(local.food) && has(remote.food)) {
+      ['food', 'foodAmount', 'foodUnit', 'foodKcal', 'foodPresetId', 'foodUnitSize', 'foodUnitSizeUnit'].forEach(function (k) { out[k] = remote[k] || ''; });
+    } else if (has(local.food) && has(remote.food) && normName(local.food) === normName(remote.food)) {
+      ['foodAmount', 'foodUnit', 'foodKcal', 'foodPresetId', 'foodUnitSize', 'foodUnitSizeUnit'].forEach(function (k) { if (!has(local[k]) && has(remote[k])) out[k] = remote[k]; });
+    }
     function medKey(m) { return (m.at || '') + '|' + normName(m.name); }
     var seen = {};
     out.meds = remote.meds.concat(local.meds).filter(function (m) {
@@ -3867,10 +4244,23 @@
     $('clearForm').addEventListener('click', clearRecordForm);
     $('appendBtn').addEventListener('click', appendToLastLog);
     $('addMeasureBtn').addEventListener('click', function () { openMeasureEditor(null); });
+    $('manageFoodsBtn').addEventListener('click', openFoodManager);
+    $('rFood').addEventListener('input', function () {
+      var fp = foodPresetForName(formPet(), $('rFood').value);
+      $('rFoodPresetId').value = fp ? fp.id : '';
+      updateFoodPreview();
+      renderStars();
+    });
+    $('rFood').addEventListener('change', function () {
+      var fp = foodPresetForName(formPet(), $('rFood').value);
+      if (fp) applyFoodPresetToForm(fp, false); else updateFoodPreview();
+    });
+    $('rFoodAmount').addEventListener('input', updateFoodPreview);
+    $('rFoodUnit').addEventListener('change', updateFoodPreview);
     $('rDate').addEventListener('change', renderAppendHint);
     $('addMedRow').addEventListener('click', function () { addMedRow('', '').querySelector('.med-name').focus(); });
     $('starWeight').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'weight' }); });
-    $('starFood').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'food', note: $('rFood').value }); });
+    $('starFood').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'food', note: $('rFood').value, foodPresetId: $('rFoodPresetId').value, foodAmount: $('rFoodAmount').value, foodUnit: $('rFoodUnit').value }); });
     $('starMood').addEventListener('click', function () { toggleRoutine(formPet(), { kind: 'mood' }); });
     $('weightUnit').addEventListener('change', function () { setWeightUnit($('weightUnit').value); });
     applyWeightUnitToForm();

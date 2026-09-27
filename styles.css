@@ -1264,3 +1264,83 @@ body.vr-open { overflow: hidden; }
 .theme-option small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
 .theme-swatch { display: flex; flex: 0 0 auto; border-radius: 10px; overflow: hidden; border: 1px solid var(--line-2); }
 .theme-swatch i { width: 16px; height: 36px; display: block; }
+
+/* ============ FOOD AMOUNTS + QUICK FOODS ============ */
+.food-section {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.food-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.food-head .small-label { display: flex; align-items: center; gap: 5px; }
+.food-entry {
+  display: grid;
+  grid-template-columns: minmax(150px, 2fr) minmax(90px, .7fr) minmax(94px, .7fr);
+  gap: 8px;
+  align-items: end;
+}
+.food-quick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.food-quick::before {
+  content: 'QUICK';
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-right: 2px;
+}
+.food-quick .chip { margin: 0; }
+.food-kcal-preview {
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.food-kcal-preview strong { color: var(--ink-2); font-weight: 600; }
+.food-preset-list { display: grid; gap: 8px; margin-top: 14px; }
+.food-preset-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.food-preset-card b { display: block; }
+.food-preset-card span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.food-preset-actions { display: flex; gap: 4px; }
+.food-preset-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.food-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.food-energy-grid { display: grid; grid-template-columns: minmax(85px, .8fr) auto minmax(85px, .8fr) minmax(100px, 1fr); gap: 8px; align-items: end; }
+.food-energy-per { align-self: center; padding-top: 20px; color: var(--muted); font-size: 13px; text-align: center; }
+.food-package-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, .8fr); gap: 8px; }
+.food-help { margin: 0; font-size: 12px; color: var(--muted); }
+.food-routine-amount { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.food-routine-amount input { width: 86px; min-height: 38px; padding: 7px 10px; }
+.food-routine-amount select { width: 96px; min-height: 38px; padding: 7px 8px; }
+
+@media (max-width: 560px) {
+  .food-entry { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .food-entry .food-name { grid-column: 1 / -1; }
+  .food-preset-grid, .food-package-grid { grid-template-columns: 1fr; }
+  .food-energy-grid { grid-template-columns: 1fr 1fr; }
+  .food-energy-per { display: none; }
+  .food-preset-card { grid-template-columns: minmax(0, 1fr); }
+  .food-preset-actions { justify-content: flex-end; }
+  .routine-row.routine-food { grid-template-columns: 32px minmax(0, 1fr); }
+  .routine-row.routine-food .routine-actions { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
+  .routine-row.routine-food .routine-desc-wrap { grid-column: 2; flex-wrap: wrap; }
+  .food-routine-amount { width: 100%; }
+  .food-routine-amount input { flex: 1 1 90px; width: auto; }
+  .food-routine-amount select { flex: 1 1 100px; width: auto; }
+}

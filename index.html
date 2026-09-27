@@ -19,7 +19,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- Bump ?v= on both files with every release, so browsers fetch the new ones together. -->
-<link rel="stylesheet" href="styles.css?v=5.4">
+<link rel="stylesheet" href="styles.css?v=5.5">
 <script>
   // Apply this device's saved color theme before the page draws, so the
   // default colors don't flash first.
@@ -146,9 +146,24 @@
                   <span class="weight-inputs"><input type="number" step="any" min="0" id="rWeight" inputmode="decimal" placeholder="lb">
                   <input type="number" step="any" min="0" id="rWeightOz" inputmode="decimal" placeholder="oz" aria-label="Ounces"></span></label>
                 <label class="field"><span class="field-head">Mood <button type="button" class="star" id="starMood" title="Log mood every day" aria-label="Log mood every day" aria-pressed="false">☆</button></span><input type="number" min="1" max="5" id="rMood" inputmode="numeric" placeholder="1–5"></label>
-                <label class="field"><span class="field-head">Food <button type="button" class="star" id="starFood" title="Log food every day" aria-label="Log food every day" aria-pressed="false">☆</button></span><input id="rFood" list="foodOptions" placeholder="meal / brand"></label>
                 <label class="field">Activity<input type="number" id="rActivity" inputmode="numeric" placeholder="min"></label>
                 <label class="field">Cost<input type="number" step="0.01" id="rCost" inputmode="decimal" placeholder="$"></label>
+              </div>
+              <div class="food-section">
+                <div class="food-head">
+                  <span class="small-label" style="margin:0">Food <button type="button" class="star" id="starFood" title="Log food every day" aria-label="Log food every day" aria-pressed="false">☆</button></span>
+                  <button type="button" class="ghost tiny" id="manageFoodsBtn">⚙ Foods</button>
+                </div>
+                <div class="food-entry">
+                  <input type="hidden" id="rFoodPresetId" value="">
+                  <label class="field food-name">Food / brand<input id="rFood" list="foodOptions" placeholder="e.g. Fancy Feast Chicken"></label>
+                  <label class="field food-amount">Amount eaten<input type="number" step="any" min="0" id="rFoodAmount" inputmode="decimal" placeholder="amount"></label>
+                  <label class="field food-unit">Unit<select id="rFoodUnit" aria-label="Food amount unit">
+                    <option value="can">can</option><option value="pouch">pouch</option><option value="cup">cup</option><option value="serving">serving</option><option value="piece">piece</option><option value="g">g</option><option value="oz">oz</option><option value="kg">kg</option><option value="lb">lb</option>
+                  </select></label>
+                </div>
+                <div class="food-quick" id="foodQuick" hidden></div>
+                <div class="food-kcal-preview" id="foodKcalPreview"></div>
               </div>
               <div class="med-section">
                 <div class="med-head"><span class="small-label" style="margin:0">Medicines</span><button type="button" class="ghost tiny" id="addMedRow">＋ Medicine</button></div>
@@ -250,7 +265,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=5.4"></script>
+<script src="app.js?v=5.5"></script>
 <script>
   // PWA shell: GitHub Pages is HTTPS, so the service worker can make this
   // site installable and keep the local app shell available when offline.

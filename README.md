@@ -154,3 +154,8 @@ No build step needed. Serve the project root over HTTP (required for Firebase to
 python -m http.server 8080
 # then open http://localhost:8080
 ```
+
+
+### Structured food intake and quick foods (data v6)
+
+Food logs can optionally record an amount and unit (can, pouch, cup, serving, piece, g, oz, kg, or lb). Each pet can keep up to 30 reusable food presets with a default amount/unit, optional package net weight, and an optional calorie declaration such as 90 kcal per can, 110 kcal per 100 g, or 3,700 kcal per kg. The app stores the calculated kcal on the log so historical intake does not change if a preset is edited later. Package weight enables conversions between a can/pouch and mass units. Legacy food-name-only logs remain valid.
