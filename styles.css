@@ -521,7 +521,7 @@ h1 {
 .ev-row .type-pill { justify-self: start; margin-top: 4px; }
 .ev-count { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); margin-top: 3px; text-align: right; }
 .ev-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.record.ev-chip {
+.ev-chip {
   display: inline-flex; align-items: center; padding: 0; border-radius: 999px;
   background: var(--card); border: 1px solid var(--line); white-space: nowrap;
 }
@@ -534,6 +534,10 @@ h1 {
 .ev-chip [data-action="delete"]:hover { color: var(--danger); }
 .ev-chip [data-action="edit"]:hover { text-decoration: underline; }
 .record-group .note { margin-top: 8px; }
+.record-group > .record-date { color: var(--ink); font-weight: 600; }
+/* A day's other logs (weight, food, medicines...) inside its card */
+.record.record-sub { border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; padding: 10px 0 0; margin-top: 10px; }
+.record-group > .record-date + .record.record-sub { border-top: 0; margin-top: 6px; padding-top: 0; }
 .record-top {
   display: flex;
   align-items: flex-start;

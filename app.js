@@ -286,6 +286,20 @@
       return;
     }
 
+    // Recent logs: one card per day. Stool, urination, vomit and symptoms are
+    // counted at the top of the card, however they were logged (Daily Routine or
+    // as part of a bigger log): a row per type with its count and a chip per
+    // kind ("Normal ×2"). Everything else logged that day is listed below it.
+    var EVENT_TAGS = ['stool', 'urine', 'vomit', 'symptom'];
+    function eventLabels(r, tag) {
+      return (tag === 'symptom' ? r.symptoms : r[LABEL_KINDS[tag].logKey]) || [];
+    }
+    // True when a log holds nothing but events (and maybe a note)
+    function eventsOnly(r) {
+      return r.tags.length && r.tags.every(function (t) { return EVENT_TAGS.indexOf(t) >= 0; }) && !has(r.weight) && !has(r.mood) &&
+        !has(r.activity) && !has(r.cost) && !foodItemsOf(r).length && !r.meds.length && !(r.readings || []).length;
+    }
+    // A log's other details (weight, food, medicines...), with Edit and Delete
     function card(r) {
       var bits = [];
       var rp = state.pets.find(function (x) { return x.id === r.petId; });
@@ -297,10 +311,6 @@
       if (foodItemsOf(r).length) bits.push(esc(foodLogText(r, rp)));
       if (r.playSize) bits.push(esc(PLAY_SIZES[r.playSize] || r.playSize) + ' play');
       (r.playKinds || []).forEach(function (k) { bits.push(esc(k)); });
-      (r.symptoms || []).forEach(function (k) { bits.push(esc(k)); });
-      (r.vomitKinds || []).forEach(function (k) { bits.push(esc(k)); });
-      (r.stoolKinds || []).forEach(function (k) { bits.push(esc(k)); });
-      (r.urineKinds || []).forEach(function (k) { bits.push(esc(k)); });
       if (VET_TYPES[r.vetType]) bits.push(esc(VET_TYPES[r.vetType]) + ' visit');
       (r.readings || []).forEach(function (x) {
         var ms = measureById(rp, x.m);
@@ -308,17 +318,15 @@
         var flag = outOfRange(ms, x.v);
         bits.push(esc(ms.name) + ' ' + esc(fmtMeasureValue(ms, x.v)) + (flag ? ' (' + flag + ')' : '') + (x.t ? ' · ' + esc(timeText(x.t)) : ''));
       });
-      var kinds = kindsOf(r);
+      // Events are counted at the top of the day's card, so they aren't repeated here
+      var kinds = kindsOf(r).filter(function (k) { return EVENT_TAGS.indexOf(k) < 0; });
       var pills = kinds.length
         ? kinds.map(function (k) { return '<span class="type-pill ' + esc(k) + '">' + esc(label(k)) + '</span>'; }).join('')
         : '<span class="type-pill">Note</span>';
       return '' +
-        '<div class="record" data-id="' + esc(r.id) + '">' +
+        '<div class="record record-sub" data-id="' + esc(r.id) + '">' +
           '<div class="record-top">' +
-            '<div class="record-top-left">' +
-              '<div class="record-type">' + pills + '</div>' +
-              '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
-            '</div>' +
+            '<div class="record-top-left"><div class="record-type">' + pills + '</div></div>' +
             '<div class="record-actions">' +
               '<button class="ghost tiny" data-action="edit" type="button">Edit</button>' +
               '<button class="ghost tiny" data-action="delete" type="button">Delete</button>' +
@@ -331,55 +339,43 @@
           (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
         '</div>';
     }
-    // Events logged on their own (stool, urination, vomit, symptoms) share one
-    // card per day: a row per type with its count, then one chip per kind of
-    // entry ("Normal ×2", "Hard"). Tap a chip to edit its latest entry; × removes
-    // one entry. Each event is still stored as its own log.
-    var EVENT_TAGS = ['stool', 'urine', 'vomit', 'symptom'];
-    function eventOnly(r) {
-      return r.tags.length === 1 && EVENT_TAGS.indexOf(r.tags[0]) >= 0 && !has(r.weight) && !has(r.mood) &&
-        !has(r.activity) && !has(r.cost) && !foodItemsOf(r).length && !r.meds.length && !(r.readings || []).length;
-    }
-    function labelsOf(r) {
-      var kind = r.tags[0] === 'symptom' ? null : LABEL_KINDS[r.tags[0]];
-      return (kind ? r[kind.logKey] : r.symptoms) || [];
-    }
-    function chips(list) {
-      // Same labels, same chip; list is newest first, so the chip edits the latest
+    // Chips for one type of event: same labels, same chip. The list is newest
+    // first, so a chip edits (or × removes) the latest of its entries.
+    function chips(list, tag) {
       var byText = {}, order = [];
       list.forEach(function (r) {
-        var text = labelsOf(r).join(', ') || 'No details';
+        var text = eventLabels(r, tag).join(', ') || 'No details';
         if (!byText[text]) { byText[text] = []; order.push(text); }
         byText[text].push(r);
       });
       return order.map(function (text) {
         var logs = byText[text], r = logs[0];
-        return '<span class="record ev-chip" data-id="' + esc(r.id) + '">' +
+        return '<span class="ev-chip" data-id="' + esc(r.id) + '" data-tag="' + tag + '">' +
           '<button type="button" data-action="edit" title="Edit">' + esc(text) +
             (logs.length > 1 ? '<b>×' + logs.length + '</b>' : '') + '</button>' +
-          '<button type="button" data-action="delete" aria-label="Delete one ' + esc(text) + ' ' + esc(label(r.tags[0]).toLowerCase()) + ' log">×</button></span>';
+          '<button type="button" data-action="remove-event" aria-label="Remove one ' + esc(text) + ' ' + esc(label(tag).toLowerCase()) + '">×</button></span>';
       }).join('');
     }
-    var byDay = {};
-    rs.forEach(function (r) { if (eventOnly(r)) (byDay[r.date] = byDay[r.date] || []).push(r); });
-    var drawn = {};
-    $('records').innerHTML = rs.map(function (r) {
-      if (!eventOnly(r)) return card(r);
-      if (drawn[r.date]) return '';
-      drawn[r.date] = true;
-      var day = byDay[r.date];
-      var notes = day.filter(function (x) { return x.note; });
+    var byDay = {}, dayOrder = [];
+    rs.forEach(function (r) { if (!byDay[r.date]) { byDay[r.date] = []; dayOrder.push(r.date); } byDay[r.date].push(r); });
+    $('records').innerHTML = dayOrder.map(function (date) {
+      var day = byDay[date];
+      var rows = EVENT_TAGS.map(function (tag) {
+        var list = day.filter(function (r) { return hasTag(r, tag); });
+        if (!list.length) return '';
+        return '<div class="ev-row"><span class="type-pill ' + esc(tag) + '">' + esc(label(tag)) + '</span>' +
+          '<span class="ev-count">' + list.length + '</span><div class="ev-chips">' + chips(list, tag) + '</div></div>';
+      }).join('');
+      // Notes on event-only logs (other logs show their notes with their details)
+      var notes = day.filter(function (r) { return eventsOnly(r) && r.note; });
+      var others = day.filter(function (r) { return !eventsOnly(r); });
       return '<div class="record-group">' +
-        '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
-        '<div class="ev-rows">' +
-        EVENT_TAGS.filter(function (tag) { return day.some(function (x) { return x.tags[0] === tag; }); }).map(function (tag) {
-          var list = day.filter(function (x) { return x.tags[0] === tag; });
-          return '<div class="ev-row"><span class="type-pill ' + esc(tag) + '">' + esc(label(tag)) + '</span>' +
-            '<span class="ev-count">' + list.length + '</span><div class="ev-chips">' + chips(list) + '</div></div>';
-        }).join('') + '</div>' +
-        (notes.length ? '<div class="note">' + notes.map(function (x) {
-          return '<b>' + esc(label(x.tags[0])) + (labelsOf(x).length ? ' · ' + esc(labelsOf(x).join(', ')) : '') + ':</b> ' + esc(x.note);
+        '<div class="record-date">' + esc(formatDate(date)) + '</div>' +
+        (rows ? '<div class="ev-rows">' + rows + '</div>' : '') +
+        (notes.length ? '<div class="note">' + notes.map(function (r) {
+          return '<b>' + esc(r.tags.map(label).join(', ')) + ':</b> ' + esc(r.note);
         }).join('<br>') + '</div>' : '') +
+        others.map(card).join('') +
       '</div>';
     }).join('');
 
@@ -390,10 +386,13 @@
     }
 
     // Bind record-action buttons
-    $('records').querySelectorAll('.record').forEach(function (el) {
+    $('records').querySelectorAll('.record, .ev-chip').forEach(function (el) {
       var id = el.dataset.id;
       el.querySelector('[data-action="edit"]').addEventListener('click', function () { editLog(id); });
-      el.querySelector('[data-action="delete"]').addEventListener('click', function () { deleteLog(id); });
+      var del = el.querySelector('[data-action="delete"]');
+      if (del) del.addEventListener('click', function () { deleteLog(id); });
+      var rm = el.querySelector('[data-action="remove-event"]');
+      if (rm) rm.addEventListener('click', function () { removeEvent(id, el.dataset.tag); });
     });
   }
 
@@ -3065,6 +3064,24 @@
     document.querySelector('.record-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // Remove one event (e.g. a stool) from a log. A log with nothing else in it
+  // is deleted; otherwise only that event and its labels are taken off.
+  function removeEvent(id, tag) {
+    var r = state.records.find(function (x) { return x.id === id; });
+    if (!r) return;
+    var name = label(tag).toLowerCase();
+    if (!confirm('Remove this ' + name + '?')) return;
+    r.tags = r.tags.filter(function (t) { return t !== tag; });
+    if (tag === 'symptom') r.symptoms = [];
+    else if (LABEL_KINDS[tag]) r[LABEL_KINDS[tag].logKey] = [];
+    // Nothing left but perhaps a note that was about this event
+    var empty = isBlankRecord(r) || (!r.tags.length && isBlankRecord(Object.assign({}, r, { note: '' })));
+    if (empty) state.records = state.records.filter(function (x) { return x.id !== id; });
+    if (editingLogId === id) clearRecordForm();
+    save();
+    render();
+    toast(label(tag) + ' removed');
+  }
   function deleteLog(id) {
     if (!confirm('Delete this log?')) return;
     state.records = state.records.filter(function (r) { return r.id !== id; });
