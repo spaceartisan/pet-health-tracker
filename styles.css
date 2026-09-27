@@ -511,11 +511,24 @@ h1 {
   border: 1px solid var(--line);
   background: var(--bg);
   border-radius: var(--radius);
-  padding: 12px 14px 4px;
+  padding: 12px 14px;
   overflow-wrap: anywhere;
 }
-.record.record-sub { border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; padding: 8px 0; margin-top: 8px; }
-.record.record-sub .metrics { margin-top: 4px; }
+.ev-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.ev-row .type-pill { margin-right: 4px; }
+.record.ev-chip {
+  display: inline-flex; align-items: center; padding: 0; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--line);
+}
+.ev-chip button {
+  background: transparent; color: var(--ink); min-height: 30px; padding: 3px 4px 3px 10px;
+  font-size: 13px; font-weight: 500; border-radius: 999px;
+}
+.ev-chip button small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.ev-chip [data-action="delete"] { padding: 3px 9px 3px 4px; color: var(--muted); font-size: 15px; }
+.ev-chip button:hover { color: var(--danger); }
+.ev-chip [data-action="edit"]:hover { color: var(--ink); text-decoration: underline; }
+.record-group .note { margin-top: 8px; }
 .record-top {
   display: flex;
   align-items: flex-start;

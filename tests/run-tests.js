@@ -1460,8 +1460,9 @@ async function urination() {
   A.addLog('in and out of the box'); await settle();
   const r = latest();
   check('urination labels and tag saved', r && r.tags.includes('urine') && JSON.stringify(r.urineKinds) === JSON.stringify(['Straining', 'Small']), r && [r.tags, r.urineKinds]);
-  const card = d.querySelector('.record[data-id="' + r.id + '"]').textContent;
-  check('the log card shows them', card.includes('Urination') && card.includes('Straining'), card);
+  // Event-only logs share one card per day: a row per type, a chip per log
+  const card = d.querySelector('.record[data-id="' + r.id + '"]').closest('.record-group').textContent;
+  check('the day card shows them', card.includes('Urination') && card.includes('Straining, Small'), card);
   check('unusual urination is noted in the last 14 days', /Urination: Straining, Small/.test(A.$('careNotes').textContent), A.$('careNotes').textContent);
   A.editLog(r.id);
   check('editing restores the labels', chip('Straining').getAttribute('aria-pressed') === 'true');
@@ -1469,6 +1470,8 @@ async function urination() {
   // A normal one, then the weekly chart: Normal is its own (green) series
   tag('urine').click(); chip('Normal').click();
   A.addLog(''); await settle();
+  const row = d.querySelector('.record[data-id="' + r.id + '"]').closest('.ev-row');
+  check('two urinations on one day: one row, one chip each', row && /Urination ×2/.test(row.textContent) && row.querySelectorAll('.ev-chip').length === 2, row && row.textContent);
   const cw = A.chart('urine-weekly');
   const labels = cw ? cw.data.datasets.map((x) => x.label) : [];
   check('Urination (weekly) chart stacks by label', ['Normal', 'Straining', 'Small'].every((x) => labels.includes(x)), labels);

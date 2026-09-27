@@ -286,7 +286,7 @@
       return;
     }
 
-    function card(r, sub) {
+    function card(r) {
       var bits = [];
       var rp = state.pets.find(function (x) { return x.id === r.petId; });
       // Every value is escaped: vault data can be written by anyone with the code.
@@ -312,15 +312,12 @@
       var pills = kinds.length
         ? kinds.map(function (k) { return '<span class="type-pill ' + esc(k) + '">' + esc(label(k)) + '</span>'; }).join('')
         : '<span class="type-pill">Note</span>';
-      // Inside a group the pill and date are on the group; each entry shows its time
-      var when = sub ? (r.loggedAt ? timeOf(r.loggedAt) : '') : '';
       return '' +
-        '<div class="record' + (sub ? ' record-sub' : '') + '" data-id="' + esc(r.id) + '">' +
+        '<div class="record" data-id="' + esc(r.id) + '">' +
           '<div class="record-top">' +
             '<div class="record-top-left">' +
-              (sub ? '<div class="record-date">' + esc(when || 'Time not recorded') + '</div>'
-                : '<div class="record-type">' + pills + '</div>' +
-                  '<div class="record-date">' + esc(formatDate(r.date)) + '</div>') +
+              '<div class="record-type">' + pills + '</div>' +
+              '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
             '</div>' +
             '<div class="record-actions">' +
               '<button class="ghost tiny" data-action="edit" type="button">Edit</button>' +
@@ -334,27 +331,45 @@
           (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
         '</div>';
     }
-    // Repeated events on one day (e.g. three stools logged from Daily Routine)
-    // share one card, "Stool ×3", with each one as a line inside it.
-    var GROUPED = ['stool', 'urine', 'vomit', 'symptom'];
-    function groupKey(r) {
-      var onlyEvent = r.tags.length === 1 && GROUPED.indexOf(r.tags[0]) >= 0 && !has(r.weight) && !has(r.mood) &&
+    // Events logged on their own (stool, urination, vomit, symptoms) share one
+    // card per day: a row per type, "Stool ×4", then one small chip per time
+    // it happened (its labels and time). Tap a chip to edit it, × to delete it.
+    var EVENT_TAGS = ['stool', 'urine', 'vomit', 'symptom'];
+    function eventOnly(r) {
+      return r.tags.length === 1 && EVENT_TAGS.indexOf(r.tags[0]) >= 0 && !has(r.weight) && !has(r.mood) &&
         !has(r.activity) && !has(r.cost) && !foodItemsOf(r).length && !r.meds.length && !(r.readings || []).length;
-      return onlyEvent ? r.date + '|' + r.tags[0] : null;
     }
-    var groups = {};
-    rs.forEach(function (r) { var k = groupKey(r); if (k) (groups[k] = groups[k] || []).push(r); });
+    function labelsOf(r) {
+      var kind = r.tags[0] === 'symptom' ? null : LABEL_KINDS[r.tags[0]];
+      return (kind ? r[kind.logKey] : r.symptoms) || [];
+    }
+    function chip(r) {
+      var t = r.loggedAt ? timeOf(r.loggedAt) : '';
+      var what = labelsOf(r).join(', ') || 'No details';
+      return '<span class="record ev-chip" data-id="' + esc(r.id) + '">' +
+        '<button type="button" data-action="edit" title="Edit' + (r.note ? ': ' + esc(r.note) : '') + '">' + esc(what) +
+          (t ? ' <small>' + esc(t) + '</small>' : '') + (r.note ? ' <small>✎</small>' : '') + '</button>' +
+        '<button type="button" data-action="delete" aria-label="Delete this ' + esc(label(r.tags[0]).toLowerCase()) + ' log">×</button></span>';
+    }
+    var byDay = {};
+    rs.forEach(function (r) { if (eventOnly(r)) (byDay[r.date] = byDay[r.date] || []).push(r); });
     var drawn = {};
     $('records').innerHTML = rs.map(function (r) {
-      var k = groupKey(r);
-      if (!k || groups[k].length < 2) return card(r, false);
-      if (drawn[k]) return '';
-      drawn[k] = true;
-      var tag = r.tags[0];
+      if (!eventOnly(r)) return card(r);
+      if (drawn[r.date]) return '';
+      drawn[r.date] = true;
+      var day = byDay[r.date].slice().sort(function (x, y) { return String(x.loggedAt || '').localeCompare(String(y.loggedAt || '')); });
+      var notes = day.filter(function (x) { return x.note; });
       return '<div class="record-group">' +
-        '<div class="record-type"><span class="type-pill ' + esc(tag) + '">' + esc(label(tag)) + ' ×' + groups[k].length + '</span></div>' +
         '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
-        groups[k].map(function (x) { return card(x, true); }).join('') +
+        EVENT_TAGS.filter(function (tag) { return day.some(function (x) { return x.tags[0] === tag; }); }).map(function (tag) {
+          var list = day.filter(function (x) { return x.tags[0] === tag; });
+          return '<div class="ev-row"><span class="type-pill ' + esc(tag) + '">' + esc(label(tag)) + (list.length > 1 ? ' ×' + list.length : '') + '</span>' +
+            list.map(chip).join('') + '</div>';
+        }).join('') +
+        (notes.length ? '<div class="note">' + notes.map(function (x) {
+          return esc(label(x.tags[0])) + (x.loggedAt ? ' ' + esc(timeOf(x.loggedAt)) : '') + ': ' + esc(x.note);
+        }).join('<br>') + '</div>' : '') +
       '</div>';
     }).join('');
 
