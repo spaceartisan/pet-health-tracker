@@ -248,7 +248,7 @@ function openApp(client, storage, opts = {}) {
     selectPet(name) { [...d.querySelectorAll('.pet-row')].find((b) => b.textContent.includes(name)).click(); },
     openSync() { app.click('authBtn'); },
     loadCode(code) { app.openSync(); app.$('msExisting').value = code; app.click('msLoad'); },
-    editLog(id) { d.querySelector('.record[data-id="' + id + '"] [data-action="edit"]').click(); },
+    editLog(id) { d.querySelector('[data-id="' + id + '"] [data-action="edit"]').click(); },
     addFormMed(name, note) {
       app.click('addMedRow');
       const rows = d.querySelectorAll('#medRows .med-row');
@@ -1057,8 +1057,9 @@ async function labelsAndPlay() {
   check('the log saves its symptom labels', r && JSON.stringify(r.symptoms) === JSON.stringify(['Restless', 'Climbing on counters']), r && r.symptoms);
   check('the log saves play size and play labels', r && r.playSize === 'big' && JSON.stringify(r.playKinds) === JSON.stringify(['Bed game']), r && [r.playSize, r.playKinds]);
   check('the form clears afterwards', A.$('labelPanel').innerHTML === '' && !tag('symptom').getAttribute('aria-pressed').includes('true'));
-  const card = d.querySelector('.record[data-id="' + r.id + '"]').textContent;
-  check('the log card shows them', card.includes('Big play') && card.includes('Bed game') && card.includes('Restless'));
+  // Recent logs: one card per day; symptoms are counted at the top of it
+  const card = d.querySelector('.record[data-id="' + r.id + '"]').closest('.record-group').textContent;
+  check('the day card shows them', card.includes('Big play') && card.includes('Bed game') && card.includes('Restless'));
 
   // Labels only count when their tag is chosen
   tag('symptom').click(); chip('symptom', 'Restless').click(); tag('symptom').click();
@@ -1423,8 +1424,8 @@ async function stoolVomitVet() {
   check('vet visit type saved', r && r.vetType === 'emergency' && r.tags.includes('vet'));
   const pet = A.state().pets.find((p) => p.id === 'p-pepper');
   check('only the custom label is added to the pet\'s list', JSON.stringify(pet.stoolLabels) === JSON.stringify(['Grass in it']), pet.stoolLabels);
-  const card = d.querySelector('.record[data-id="' + r.id + '"]').textContent;
-  check('the log card shows them', card.includes('Soft') && card.includes('Hairball') && card.includes('Emergency visit') && card.includes('Stool'));
+  const card = d.querySelector('.record[data-id="' + r.id + '"]').closest('.record-group').textContent;
+  check('the day card shows them', card.includes('Soft') && card.includes('Hairball') && card.includes('Emergency visit') && card.includes('Stool'));
   A.editLog(r.id);
   check('editing restores the labels and visit type', chip('stool', 'Mucus').getAttribute('aria-pressed') === 'true' && d.querySelector('#labelPanel [data-vettype="emergency"]').getAttribute('aria-pressed') === 'true');
   A.click('clearForm');
@@ -1461,7 +1462,7 @@ async function urination() {
   const r = latest();
   check('urination labels and tag saved', r && r.tags.includes('urine') && JSON.stringify(r.urineKinds) === JSON.stringify(['Straining', 'Small']), r && [r.tags, r.urineKinds]);
   // Event-only logs share one card per day: a row per type, a chip per log
-  const card = d.querySelector('.record[data-id="' + r.id + '"]').closest('.record-group').textContent;
+  const card = d.querySelector('[data-id="' + r.id + '"]').closest('.record-group').textContent;
   check('the day card shows them', card.includes('Urination') && card.includes('Straining, Small'), card);
   check('unusual urination is noted in the last 14 days', /Urination: Straining, Small/.test(A.$('careNotes').textContent), A.$('careNotes').textContent);
   A.editLog(r.id);
@@ -1470,8 +1471,18 @@ async function urination() {
   // A normal one, then the weekly chart: Normal is its own (green) series
   tag('urine').click(); chip('Normal').click();
   A.addLog(''); await settle();
-  const row = d.querySelector('.record[data-id="' + r.id + '"]').closest('.ev-row');
+  const row = d.querySelector('[data-id="' + r.id + '"]').closest('.ev-row');
   check('two urinations on one day: one row with the count, a chip for each kind', row && /^Urination2/.test(row.textContent) && row.querySelectorAll('.ev-chip').length === 2, row && row.textContent);
+  tag('urine').click(); chip('Large').click(); A.$('rMood').value = '4';
+  A.addLog(''); await settle();
+  const mixed = latest();
+  const row2 = d.querySelector('[data-id="' + r.id + '"]').closest('.ev-row');
+  check('urination logged with other things joins the same row', /^Urination3/.test(row2.textContent) && row2.querySelector('.ev-chip[data-id="' + mixed.id + '"]'), row2.textContent);
+  check('...and isn\'t repeated with the other details', !/Urination/.test(d.querySelector('.record[data-id="' + mixed.id + '"]').textContent));
+  A.w.confirm = () => true;
+  row2.querySelector('.ev-chip[data-id="' + mixed.id + '"] [data-action="remove-event"]').click(); await settle();
+  const after = A.state().records.find((x) => x.id === mixed.id);
+  check('× on it removes only the urination', after && !after.tags.includes('urine') && !after.urineKinds.length && String(after.mood) === '4', after);
   const cw = A.chart('urine-weekly');
   const labels = cw ? cw.data.datasets.map((x) => x.label) : [];
   check('Urination (weekly) chart stacks by label', ['Normal', 'Straining', 'Small'].every((x) => labels.includes(x)), labels);
