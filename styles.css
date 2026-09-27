@@ -177,6 +177,9 @@ label.field {
   gap: 18px;
   min-height: 100dvh;
 }
+/* Grid items default to their content's width; without this a long pet strip
+   widens the whole page on phones instead of scrolling sideways. */
+.app > * { min-width: 0; }
 
 /* ============ HEADER ============ */
 .header {
@@ -212,16 +215,13 @@ h1 {
   letter-spacing: -.02em;
   font-variation-settings: "opsz" 144;
 }
-.subtitle {
-  font-size: 13px;
-  color: var(--muted);
-  margin-top: 2px;
-}
 .header-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
+.header-sep { width: 1px; height: 24px; background: var(--line-2); margin: 0 4px; }
 
 /* ============ MAIN SHELL ============ */
 .shell {
@@ -301,7 +301,14 @@ h1 {
   font-weight: 400;
 }
 
-.add-pet-form { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.add-pet-row .pet-avatar {
+  background: transparent;
+  border: 1px dashed var(--line-2);
+  color: var(--muted);
+  font-size: 18px;
+}
+.add-pet-row b { color: var(--muted); font-weight: 500; }
+.add-pet-row:hover b { color: var(--ink); }
 .form-grid { display: grid; gap: 10px; }
 .form-grid.cols-2 { grid-template-columns: 1fr 1fr; }
 .form-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
@@ -373,7 +380,7 @@ h1 {
 .stats {
   margin-top: 18px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 .stat {
@@ -392,6 +399,7 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   font-variation-settings: "opsz" 72;
+  font-variant-numeric: tabular-nums;
 }
 .stat span {
   font-size: 11px;
@@ -677,7 +685,6 @@ h1 {
   .shell {
     grid-template-columns: 1fr;
   }
-  .sidebar .add-pet-form { display: none; }
   .sidebar { min-width: 0; width: 100%; overflow-x: hidden; }
   .pet-list {
     display: flex;
@@ -709,7 +716,6 @@ h1 {
   }
   .header-actions { display: none; } /* moved into menu / mobile nav */
   .header { gap: 10px; }
-  .subtitle { display: none; }
   .logo { width: 40px; height: 40px; font-size: 20px; border-radius: 12px; }
 
   /* Mobile uses tabs; show only the active panel */
@@ -738,7 +744,7 @@ h1 {
   .summary { padding: 16px; gap: 14px; }
   .pet-hero { grid-template-columns: 56px 1fr; gap: 12px; }
   .hero-icon { width: 56px; height: 56px; font-size: 30px; border-radius: 18px; }
-  .stats { gap: 8px; margin-top: 14px; }
+  .stats { gap: 8px; margin-top: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stat { padding: 10px; }
   .stat b { font-size: 18px; }
   .stat span { font-size: 9px; letter-spacing: .06em; }
@@ -806,7 +812,7 @@ h1 {
 
 /* ============ COMPACT PHONES (small height) ============ */
 @media (max-width: 720px) and (max-height: 700px) {
-  .stats { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .stat { padding: 8px 6px; }
   .stat b { font-size: 16px; }
 }
@@ -1437,3 +1443,13 @@ body.vr-open { overflow: hidden; }
   .routine-row.routine-event .routine-event-editor { grid-column: 2; width: 100%; }
   .routine-event-tools { justify-content: flex-start; }
 }
+
+/* Food chart note (e.g. lines without calorie data) and "Show more" under the logs */
+.chart-note { font-size: 12px; color: var(--muted); align-self: center; }
+.show-more {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px dashed var(--line-2);
+  color: var(--ink-2);
+}
+.show-more span { color: var(--muted); font-weight: 400; }

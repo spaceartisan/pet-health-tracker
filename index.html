@@ -19,7 +19,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- Bump ?v= on both files with every release, so browsers fetch the new ones together. -->
-<link rel="stylesheet" href="styles.css?v=5.9">
+<link rel="stylesheet" href="styles.css?v=6.0">
 <script>
   // Apply this device's saved color theme before the page draws, so the
   // default colors don't flash first.
@@ -41,16 +41,13 @@
   <header class="header">
     <div class="brand">
       <div class="logo" aria-hidden="true">🐾</div>
-      <div>
-        <h1>Pet Health Tracker</h1>
-        <div class="subtitle">Daily care, weight, meds, mood &amp; vet visits — for every pet you love.</div>
-      </div>
+      <h1>Pet Health Tracker</h1>
     </div>
     <div class="header-actions">
       <button id="authBtn" class="secondary" type="button">☁ Cloud sync</button>
-      <button id="addPetBtn" class="secondary" type="button">＋ Add pet</button>
-      <button id="importBtn" class="secondary" type="button">Import</button>
-      <button id="exportCsvBtn" class="sage" type="button">Export CSV</button>
+      <span class="header-sep" aria-hidden="true"></span>
+      <button id="importBtn" class="ghost" type="button">Import</button>
+      <button id="exportCsvBtn" class="ghost" type="button">Export CSV</button>
       <button id="exportJsonBtn" class="ghost" type="button">Export JSON</button>
       <button id="themeBtn" class="ghost" type="button" title="Color theme" aria-label="Color theme">🎨</button>
     </div>
@@ -60,29 +57,6 @@
     <aside class="sidebar card">
       <p class="side-title">Your pets</p>
       <div class="pet-list" id="petList" role="list"></div>
-      <div class="add-pet-form">
-        <p class="side-title" style="margin-top: 4px;">Add a pet</p>
-        <div class="form-grid cols-2">
-          <label class="field">Name<input id="pName" placeholder="Felix" autocomplete="off"></label>
-          <label class="field">Icon
-            <select id="pIcon">
-              <option>🐱</option><option>🐶</option><option>🐰</option><option>🐦</option>
-              <option>🐹</option><option>🐢</option><option>🐠</option><option>🦎</option><option>🐾</option>
-            </select>
-          </label>
-        </div>
-        <div class="form-grid cols-2">
-          <label class="field">Species
-            <select id="pSpecies">
-              <option>Cat</option><option>Dog</option><option>Rabbit</option><option>Bird</option>
-              <option>Reptile</option><option>Fish</option><option>Other</option>
-            </select>
-          </label>
-          <label class="field">Breed<input id="pBreed" placeholder="Tuxedo" autocomplete="off"></label>
-        </div>
-        <label class="field">Birthday<input type="date" id="pBirthday"></label>
-        <button id="savePet" class="sage" type="button">Add pet</button>
-      </div>
     </aside>
 
     <main class="main">
@@ -99,13 +73,13 @@
             </div>
             <div class="stats">
               <div class="stat"><b id="sWeight">—</b><span>Weight</span></div>
-              <div class="stat"><b id="sMood">—</b><span>Avg mood</span></div>
-              <div class="stat"><b id="sMeds">—</b><span>Meds</span></div>
-              <div class="stat"><b id="sRecords">—</b><span>Logs</span></div>
+              <div class="stat"><b id="sWeightChange">—</b><span>Weight · 30 days</span></div>
+              <div class="stat"><b id="sMood">—</b><span>Mood · 30 days</span></div>
+              <div class="stat"><b id="sVet">—</b><span>Last vet visit</span></div>
             </div>
           </div>
           <div class="care-note">
-            <b>Care snapshot</b>
+            <b>Last 14 days</b>
             <ul id="careNotes"><li>No logs yet.</li></ul>
           </div>
         </section>
@@ -191,18 +165,21 @@
                   <option value="all">All time</option>
                 </select>
                 <select id="chartMode" aria-label="Chart" style="width: auto; min-height: 36px; padding: 6px 12px;">
-                  <option value="weight">Weight</option>
-                  <option value="food">Food intake</option>
-                  <option value="mood">Mood</option>
-                  <option value="activity">Activity minutes</option>
-                  <option value="play-weekly">Activity (weekly)</option>
-                  <option value="symptom-weekly">Symptoms (weekly)</option>
-                  <option value="stool-weekly">Stool (weekly)</option>
-                  <option value="cost">Cost</option>
-                  <option value="vomit-weekly">Vomit (weekly)</option>
-                  <option value="diarrhea-weekly">Diarrhea (weekly)</option>
-                  <option value="gi-weekly">GI episodes (weekly)</option>
-                  <option value="types">Log types</option>
+                  <optgroup label="Daily">
+                    <option value="weight">Weight</option>
+                    <option value="food">Food intake</option>
+                    <option value="mood">Mood</option>
+                    <option value="activity">Activity minutes</option>
+                    <option value="cost">Cost</option>
+                  </optgroup>
+                  <optgroup label="Per week">
+                    <option value="gi-weekly">Vomit &amp; diarrhea</option>
+                    <option value="vomit-weekly">Vomit</option>
+                    <option value="diarrhea-weekly">Diarrhea</option>
+                    <option value="stool-weekly">Stool</option>
+                    <option value="symptom-weekly">Symptoms</option>
+                    <option value="play-weekly">Play</option>
+                  </optgroup>
                 </select>
                 <select id="foodChartUnit" aria-label="Food chart unit" hidden style="width: auto; min-height: 36px; padding: 6px 12px;">
                   <option value="kcal">Calories (kcal)</option>
@@ -262,7 +239,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="app.js?v=5.9"></script>
+<script src="app.js?v=6.0"></script>
 <script>
   // PWA shell: GitHub Pages is HTTPS, so the service worker can make this
   // site installable and keep the local app shell available when offline.
