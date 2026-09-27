@@ -2,13 +2,13 @@
    This caches only the same-origin app shell. Health data remains in the
    app's existing localStorage / Firestore paths; the service worker never
    reads or writes it. */
-const SHELL_CACHE = 'pet-health-shell-5.7';
-const RUNTIME_CACHE = 'pet-health-runtime-5.7';
+const SHELL_CACHE = 'pet-health-shell-5.8';
+const RUNTIME_CACHE = 'pet-health-runtime-5.8';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=5.7',
-  './app.js?v=5.7',
+  './styles.css?v=5.8',
+  './app.js?v=5.8',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

@@ -894,7 +894,67 @@
       if (has(it.activity)) bits.push(it.activity + ' min');
     }
     if (it.tag === 'vet' && it.vetType) bits.push(VET_TYPES[it.vetType] || it.vetType);
-    return bits.length ? 'Default: ' + bits.join(' · ') : 'One-tap ' + routineTitle(it).toLowerCase() + ' log';
+    return bits.length ? 'Default: ' + bits.join(' · ') : 'Choose details below before logging';
+  }
+  function routineEventDraftKey(p, it, field) { return p.id + ':' + it.id + ':event:' + field; }
+  function routineEventDraft(p, it) {
+    function saved(field, fallback) {
+      var k = routineEventDraftKey(p, it, field);
+      return Object.prototype.hasOwnProperty.call(routineDrafts, k) ? routineDrafts[k] : fallback;
+    }
+    var labels = saved('labels', Array.isArray(it.labels) ? it.labels.slice() : []);
+    return {
+      labels: Array.isArray(labels) ? labels.slice() : [],
+      playSize: String(saved('playSize', it.playSize || '')),
+      vetType: String(saved('vetType', it.vetType || '')),
+      activity: saved('activity', has(it.activity) ? String(it.activity) : '')
+    };
+  }
+  function routineEventLabelChoices(p, it, selected) {
+    var cfg = ROUTINE_EVENTS[it.tag];
+    if (!cfg || !cfg.labelKind) return [];
+    var kind = cfg.labelKind, lcfg = LABEL_KINDS[kind];
+    var presets = (lcfg.presets || []).slice();
+    var own = petLabelList(p, kind).filter(function (x) {
+      return !presets.some(function (pr) { return normName(pr) === normName(x); });
+    });
+    // Symptom/play labels are user-defined. Until the pet has any, expose the
+    // same starter choices as the full Add Log form so a routine entry cannot
+    // become a context-free event.
+    var starters = (!presets.length && !own.length) ? (LABEL_STARTERS[kind] || []).slice() : [];
+    var out = presets.concat(own, starters);
+    (selected || []).forEach(function (x) {
+      if (!out.some(function (y) { return normName(x) === normName(y); })) out.push(x);
+    });
+    return out;
+  }
+  function routineEventEditorHtml(p, it, i) {
+    var cfg = ROUTINE_EVENTS[it.tag] || {}, draft = routineEventDraft(p, it), html = '';
+    if (cfg.labelKind) {
+      var kind = cfg.labelKind;
+      html += '<div class="routine-event-options" role="group" aria-label="' + esc(LABEL_KINDS[kind].title) + '">' +
+        routineEventLabelChoices(p, it, draft.labels).map(function (name) {
+          var on = draft.labels.some(function (x) { return normName(x) === normName(name); });
+          return '<button type="button" class="tag-chip label-chip ' + esc(kind) + '-label" data-revent-label="' + esc(name) + '" data-revent-row="' + i + '" aria-pressed="' + on + '">' + esc(name) + '</button>';
+        }).join('') + '</div>';
+    }
+    if (it.tag === 'activity') {
+      html += '<div class="routine-event-activity"><span class="routine-event-prompt">Play size</span>' +
+        Object.keys(PLAY_SIZES).map(function (k) {
+          return '<button type="button" class="tag-chip size-btn" data-revent-size="' + k + '" data-revent-row="' + i + '" aria-pressed="' + (draft.playSize === k) + '">' + PLAY_SIZES[k] + '</button>';
+        }).join('') +
+        '<input type="number" min="0" step="1" inputmode="numeric" data-revent-activity="' + i + '" value="' + esc(draft.activity) + '" placeholder="minutes" aria-label="Activity minutes"></div>';
+    }
+    if (it.tag === 'vet') {
+      html += '<div class="routine-event-options" role="group" aria-label="Visit type">' +
+        Object.keys(VET_TYPES).map(function (k) {
+          return '<button type="button" class="tag-chip vet-btn" data-revent-vet="' + k + '" data-revent-row="' + i + '" aria-pressed="' + (draft.vetType === k) + '">' + VET_TYPES[k] + '</button>';
+        }).join('') + '</div>';
+    }
+    return '<div class="routine-event-editor" data-revent-editor="' + i + '">' +
+      '<span class="routine-event-prompt">Add details for this ' + esc(routineTitle(it).toLowerCase()) + '</span>' + html +
+      '<div class="routine-event-tools"><button class="ghost tiny" data-revent-default="' + i + '" type="button">Make default</button></div>' +
+    '</div>';
   }
   function eventRowHtml(p, row, i) {
     var it = row.item, log = row.log;
@@ -912,6 +972,7 @@
       '<div class="routine-main"><b>' + esc(routineTitle(it)) + '</b><span class="routine-desc">' + esc(desc) + '</span><span>' + esc(sub) + '</span></div>' +
       '<div class="routine-actions"><button class="sage tiny" data-log="' + i + '" type="button">' + (log ? 'Log another' : 'Log') + '</button>' +
         (log ? '<button class="ghost tiny" data-undo="' + i + '" type="button">Undo latest</button>' : '') + stop + '</div>' +
+      routineEventEditorHtml(p, it, i) +
     '</div>';
   }
 
@@ -1054,12 +1115,32 @@
       routineDrafts[foodDraftKey(it)] = foods.length ? foods : [normalizeFoodItem({ unit: 'can' })];
       return routineDrafts[foodDraftKey(it)];
     }
+    function readRoutineEventEditor(i) {
+      var it = rows[i] && rows[i].item;
+      var editor = list.querySelector('[data-revent-editor="' + i + '"]');
+      if (!it || it.kind !== 'event' || !editor) return { labels: [], playSize: '', vetType: '', activity: '' };
+      var labels = [];
+      editor.querySelectorAll('[data-revent-label][aria-pressed="true"]').forEach(function (b) { labels.push(b.getAttribute('data-revent-label')); });
+      var size = editor.querySelector('[data-revent-size][aria-pressed="true"]');
+      var vet = editor.querySelector('[data-revent-vet][aria-pressed="true"]');
+      var activity = editor.querySelector('[data-revent-activity]');
+      return { labels: labels, playSize: size ? size.getAttribute('data-revent-size') : '', vetType: vet ? vet.getAttribute('data-revent-vet') : '', activity: activity ? activity.value : '' };
+    }
+    function saveRoutineEventDraft(i) {
+      var it = rows[i] && rows[i].item;
+      if (!it || it.kind !== 'event') return;
+      var d = readRoutineEventEditor(i);
+      routineDrafts[routineEventDraftKey(p, it, 'labels')] = d.labels.slice();
+      routineDrafts[routineEventDraftKey(p, it, 'playSize')] = d.playSize;
+      routineDrafts[routineEventDraftKey(p, it, 'vetType')] = d.vetType;
+      routineDrafts[routineEventDraftKey(p, it, 'activity')] = d.activity;
+    }
     function entry(i) {
       var lbEl = list.querySelector('[data-row="' + i + '"][data-field="weight"]');
       var ozEl = list.querySelector('[data-row="' + i + '"][data-field="weightOz"]');
       var it = rows[i].item;
       if (it.kind === 'food') return { item: it, foods: readRoutineFoodEditor(i) };
-      if (it.kind === 'event') return { item: it };
+      if (it.kind === 'event') return { item: it, event: readRoutineEventEditor(i) };
       return { item: it, note: field(i, 'note'), weight: lbEl ? readWeight(lbEl, ozEl) : '' };
     }
 
@@ -1141,6 +1222,63 @@
         save(); render(); toast('New default for Food');
       });
     });
+    list.querySelectorAll('[data-revent-label]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true');
+        saveRoutineEventDraft(Number(b.getAttribute('data-revent-row')));
+      });
+    });
+    list.querySelectorAll('[data-revent-size]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.getAttribute('data-revent-row'));
+        var editor = list.querySelector('[data-revent-editor="' + i + '"]');
+        var turnOn = b.getAttribute('aria-pressed') !== 'true';
+        editor.querySelectorAll('[data-revent-size]').forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+        if (turnOn) b.setAttribute('aria-pressed', 'true');
+        saveRoutineEventDraft(i);
+      });
+    });
+    list.querySelectorAll('[data-revent-vet]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.getAttribute('data-revent-row'));
+        var editor = list.querySelector('[data-revent-editor="' + i + '"]');
+        var turnOn = b.getAttribute('aria-pressed') !== 'true';
+        editor.querySelectorAll('[data-revent-vet]').forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+        if (turnOn) b.setAttribute('aria-pressed', 'true');
+        saveRoutineEventDraft(i);
+      });
+    });
+    list.querySelectorAll('[data-revent-activity]').forEach(function (el) {
+      el.addEventListener('input', function () { saveRoutineEventDraft(Number(el.getAttribute('data-revent-activity'))); });
+      el.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        var i = Number(el.getAttribute('data-revent-activity'));
+        logRoutineItems(p.id, [entry(i)], false);
+      });
+    });
+    list.querySelectorAll('[data-revent-default]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var i = Number(b.getAttribute('data-revent-default'));
+        var cur = state.pets.find(function (x) { return x.id === p.id; });
+        var item = cur && (cur.routine || []).find(function (it) { return it.id === rows[i].item.id; });
+        if (!item) return toast('This item was removed on another device');
+        var d = readRoutineEventEditor(i);
+        var cfg = ROUTINE_EVENTS[item.tag] || {};
+        if (cfg.labelKind && item.tag !== 'activity' && !d.labels.length) return toast('Choose at least one ' + LABEL_KINDS[cfg.labelKind].noun + ' detail first');
+        if (item.tag === 'activity' && !d.labels.length && !d.playSize && !(Number(d.activity) > 0)) return toast('Choose a play detail, size, or minutes first');
+        if (item.tag === 'vet' && !d.vetType) return toast('Choose the visit type first');
+        item.labels = d.labels.slice();
+        if (item.tag === 'activity') {
+          item.playSize = d.playSize;
+          item.activity = Number(d.activity) > 0 ? Number(d.activity) : '';
+        }
+        if (item.tag === 'vet') item.vetType = d.vetType;
+        ['labels', 'playSize', 'vetType', 'activity'].forEach(function (field) { delete routineDrafts[routineEventDraftKey(p, item, field)]; });
+        save(); render(); toast('New default for ' + routineTitle(item));
+      });
+    });
+
     list.querySelectorAll('[data-log]').forEach(function (b) {
       b.addEventListener('click', function () { logRoutineItems(p.id, [entry(Number(b.getAttribute('data-log')))], false); });
     });
@@ -1250,8 +1388,30 @@
         if (!(en.mood >= 1 && en.mood <= 5)) continue;
         mood = en.mood;
       } else if (it.kind === 'event') {
-        if (!ROUTINE_EVENTS[it.tag]) continue;
-        events.push(it);
+        var ecfg = ROUTINE_EVENTS[it.tag];
+        if (!ecfg) continue;
+        var ed = en.event || { labels: (it.labels || []).slice(), playSize: it.playSize || '', vetType: it.vetType || '', activity: it.activity || '' };
+        var ev = Object.assign({}, it, { labels: Array.isArray(ed.labels) ? ed.labels.slice() : [] });
+        if (it.tag === 'activity') {
+          ev.playSize = ed.playSize || '';
+          ev.activity = Number(ed.activity) > 0 ? Number(ed.activity) : '';
+        }
+        if (it.tag === 'vet') ev.vetType = ed.vetType || '';
+        // A bare event marker is too ambiguous to be useful later.  Require
+        // the same kind of context the full Add Log form supports.
+        if (ecfg.labelKind && it.tag !== 'activity' && !ev.labels.length) {
+          if (lenient) continue;
+          return toast('Choose at least one ' + LABEL_KINDS[ecfg.labelKind].noun + ' detail first');
+        }
+        if (it.tag === 'activity' && !ev.labels.length && !ev.playSize && !(Number(ev.activity) > 0)) {
+          if (lenient) continue;
+          return toast('Choose a play detail, size, or minutes first');
+        }
+        if (it.tag === 'vet' && !ev.vetType) {
+          if (lenient) continue;
+          return toast('Choose the visit type first');
+        }
+        events.push(ev);
       } else {
         meds.push({ name: it.med, note: String(en.note || '').trim(), at: now });
       }
@@ -1296,6 +1456,11 @@
       delete routineDrafts[petId + ':' + en.item.id + ':foodAmount'];
       delete routineDrafts[petId + ':' + en.item.id + ':foodUnit'];
       delete routineDrafts[petId + ':' + en.item.id + ':foods'];
+      if (en.item.kind === 'event') {
+        ['labels', 'playSize', 'vetType', 'activity'].forEach(function (field) {
+          delete routineDrafts[routineEventDraftKey(pet, en.item, field)];
+        });
+      }
     });
     save(); render();
     var done = meds.map(function (m) { return m.name; });
@@ -2060,7 +2225,10 @@
         foodAxis = firstMeasured ? firstMeasured.unit : 'can';
         if (foodUnitSelect) foodUnitSelect.value = foodAxis;
       }
-      var byDayFood = {}, foodNames = {}, foodOrder = [], usable = 0, omitted = 0;
+      // Food is a longitudinal intake measure, so plot one daily total as a
+      // line (like weight) rather than a stacked categorical bar chart.  Foods
+      // that cannot be converted to the selected axis are reported, not zeroed.
+      var byDayFood = {}, usable = 0, omitted = 0;
       rs.forEach(function (r) {
         foodItemsOf(r).forEach(function (f) {
           var value = '';
@@ -2068,35 +2236,16 @@
           else if (Number(f.amount) > 0 && f.unit) value = convertFoodAmount(Number(f.amount), f.unit, foodAxis, foodItemConversionPreset(petForFood, f));
           if (value === '' || !isFinite(Number(value))) { if (f.name) omitted++; return; }
           usable++;
-          var k = normName(f.name), labelName = f.name || 'Food';
-          if (!foodNames[k]) { foodNames[k] = labelName; foodOrder.push(k); }
-          byDayFood[r.date] = byDayFood[r.date] || {};
-          byDayFood[r.date][k] = (byDayFood[r.date][k] || 0) + Number(value);
+          byDayFood[r.date] = (byDayFood[r.date] || 0) + Number(value);
         });
       });
       var foodDays = Object.keys(byDayFood).sort();
       labels = foodDays.map(formatDate);
-      data = foodDays.length ? [1] : [];
+      data = foodDays.map(function (d) { return { x: dayNum(d), y: Math.round(byDayFood[d] * 1000) / 1000 }; });
       name = 'Food intake';
-      chartType = 'bar';
-      var suffix = foodAxis === 'kcal' ? ' kcal' : ' ' + foodUnitLabel(foodAxis, 2);
-      chartConfig = {
-        type: 'bar',
-        data: {
-          datasets: foodOrder.map(function (k, idx) {
-            return {
-              label: foodNames[k],
-              data: foodDays.map(function (d) { return { x: dayNum(d), y: Math.round((byDayFood[d][k] || 0) * 1000) / 1000 }; }),
-              backgroundColor: C.series[idx % C.series.length],
-              borderWidth: 0,
-              borderRadius: 3,
-              stack: 'food'
-            };
-          })
-        }
-      };
+      chartType = 'line';
       $('chartSummary').innerHTML = foodAxis === 'kcal'
-        ? (usable ? '<span class="badge">Daily calories from foods with kcal data</span>' : '') + (omitted ? '<span class="badge">' + omitted + ' food ' + (omitted === 1 ? 'line' : 'lines') + ' without kcal omitted</span>' : '')
+        ? (usable ? '<span class="badge">Daily calorie intake from foods with kcal data</span>' : '') + (omitted ? '<span class="badge">' + omitted + ' food ' + (omitted === 1 ? 'line' : 'lines') + ' without kcal omitted</span>' : '')
         : (usable ? '<span class="badge">Daily intake in ' + esc(foodUnitLabel(foodAxis, 2)) + '</span>' : '') + (omitted ? '<span class="badge">' + omitted + ' incompatible food ' + (omitted === 1 ? 'line' : 'lines') + ' omitted</span>' : '');
     } else if (mode === 'types') {
       var counts = {};
@@ -2371,7 +2520,7 @@
       };
     }
 
-    var showLegend = isStackedWeekly || isFoodChart || (mode === 'weight' && chartConfig.data.datasets.length > 1);
+    var showLegend = isStackedWeekly || (mode === 'weight' && chartConfig.data.datasets.length > 1);
 
     chartConfig.options = {
       responsive: true,
@@ -2433,7 +2582,7 @@
       scales: {
         y: {
           beginAtZero: mode !== 'weight' && !mDef,
-          stacked: isStackedWeekly || isFoodChart,
+          stacked: isStackedWeekly,
           ticks: Object.assign({ precision: isFoodChart ? undefined : 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined }, weightTicks(), measureTicks()),
           grid: { color: C.grid },
           title: isFoodChart ? { display: true, text: $('foodChartUnit').value === 'kcal' ? 'kcal' : foodUnitLabel($('foodChartUnit').value, 2), color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
@@ -2479,7 +2628,6 @@
       var withYear = hi - lo > 330;
       return {
         type: 'linear',
-        stacked: isFoodChart,
         min: lo,
         max: hi,
         ticks: {

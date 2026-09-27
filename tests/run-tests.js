@@ -1567,11 +1567,11 @@ async function foodAmountsV7() {
 
   A.$('foodChartUnit').value = 'can';
   const cans = A.chart('food');
-  check('food trend stacks foods on one date axis', cans && cans.type === 'bar' && cans.data.datasets.length >= 2 && cans.data.datasets.every((d) => d.stack === 'food'), cans && cans.data.datasets.map((d) => d.label));
+  check('food trend is a daily total line like the weight chart', cans && cans.type === 'line' && cans.data.datasets.length === 1 && cans.data.datasets[0].label === 'Food intake' && cans.data.datasets[0].data.some((pt) => Math.abs(pt.y - 1.85) < 0.0001), cans && cans.data.datasets[0] && cans.data.datasets[0].data);
   A.$('foodChartUnit').value = 'kcal';
   A.$('foodChartUnit').dispatchEvent(new A.w.Event('change'));
   const kc = A.w.__chart;
-  check('food trend can change the y axis to kcal', kc && kc.options.scales.y.title.text === 'kcal' && kc.data.datasets.some((d) => d.label === 'Fancy Feast Chicken'));
+  check('food trend can change the y axis to kcal', kc && kc.type === 'line' && kc.options.scales.y.title.text === 'kcal' && kc.data.datasets[0].label === 'Food intake' && kc.data.datasets[0].data.some((pt) => Math.abs(pt.y - 121.5) < 0.0001));
   check('food kcal chart explains lines without calorie data', /without kcal omitted/.test(A.$('chartSummary').textContent), A.$('chartSummary').textContent);
   check('no script errors', A.log.errors.length === 0, A.log.errors);
   A.close();

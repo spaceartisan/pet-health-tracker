@@ -1284,7 +1284,10 @@ body.vr-open { overflow: hidden; }
 .food-rows { display: grid; gap: 8px; }
 .food-row {
   display: grid;
-  grid-template-columns: minmax(150px, 2fr) minmax(88px, .65fr) minmax(92px, .65fr) 36px;
+  /* The log form lives in a fixed-width desktop sidebar.  Keep the food name
+     on its own row there too instead of forcing four controls across and
+     overflowing the card. */
+  grid-template-columns: minmax(0, 1fr) 96px 38px;
   gap: 8px;
   align-items: end;
   min-width: 0;
@@ -1295,7 +1298,10 @@ body.vr-open { overflow: hidden; }
 }
 .food-row .field { min-width: 0; }
 .food-row .field input, .food-row .field select { min-width: 0; width: 100%; }
-.food-row .remove-food { width: 36px; min-width: 36px; min-height: 40px; padding: 0; align-self: end; }
+.food-row .food-name { grid-column: 1 / -1; }
+.food-row .food-amount { grid-column: 1; }
+.food-row .food-unit { grid-column: 2; }
+.food-row .remove-food { grid-column: 3; width: 36px; min-width: 36px; min-height: 40px; padding: 0; align-self: end; }
 .food-row-preview {
   grid-column: 1 / -1;
   min-height: 16px;
@@ -1367,11 +1373,6 @@ body.vr-open { overflow: hidden; }
 
 @media (max-width: 560px) {
   .food-head { align-items: flex-start; }
-  .food-row { grid-template-columns: minmax(0, 1fr) 96px 38px; }
-  .food-row .food-name { grid-column: 1 / -1; }
-  .food-row .food-amount { grid-column: 1; }
-  .food-row .food-unit { grid-column: 2; }
-  .food-row .remove-food { grid-column: 3; }
   .food-preset-grid, .food-package-grid { grid-template-columns: 1fr; }
   .food-energy-grid { grid-template-columns: 1fr 1fr; }
   .food-energy-per { display: none; }
@@ -1399,10 +1400,40 @@ body.vr-open { overflow: hidden; }
   .routine-food-line .routine-food-remove { grid-column: 3; }
 }
 
+/* Repeatable event quick-logs need enough context to be clinically useful.
+   Their detail picker sits below the title/actions and reuses the same label
+   vocabulary as the full Add Log form. */
+.routine-event-editor {
+  grid-column: 2 / -1;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.routine-event-editor .routine-event-prompt {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.routine-event-options { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.routine-event-options .tag-chip { min-height: 30px; padding: 4px 9px; font-size: 12px; }
+.routine-event-activity { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.routine-event-activity input {
+  width: 92px;
+  min-height: 34px;
+  padding: 6px 9px;
+}
+.routine-event-tools { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.routine-event-tools .ghost { min-height: 30px; }
+
 /* Repeatable event quick-logs (stool, vomit, symptom, activity, vet) stay readable on phones. */
 @media (max-width: 560px) {
   .routine-row.routine-event { grid-template-columns: 32px minmax(0, 1fr); align-items: start; }
   .routine-row.routine-event .routine-check { grid-row: 1 / span 2; align-self: center; }
   .routine-row.routine-event .routine-actions { grid-column: 2; width: 100%; justify-content: flex-start; flex-wrap: wrap; }
   .routine-row.routine-event .routine-actions .star { margin-left: auto; }
+  .routine-row.routine-event .routine-event-editor { grid-column: 2; width: 100%; }
+  .routine-event-tools { justify-content: flex-start; }
 }
