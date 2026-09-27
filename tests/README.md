@@ -58,7 +58,15 @@ If anything fails, it lists which check and what it found instead. Don't push un
 | Vet summary | Periods, weight change, doses and dose changes, missed doses, episodes, notes, units, full log, printing, no vault code |
 | Labels & play | Symptom and play labels, play size, editing, removing labels, weekly Play and Symptoms charts, vet summary counts |
 | Weight units | Pounds and ounces, decimal pounds and kilograms: entry, storage in pounds, display, chart axis, checklist weigh-in |
-| Bulk import | CSV template, preview, adding (never replacing), duplicates, problem rows, dates, quotes, new pets, Export CSV round trip, size limit |
+| Bulk import | CSV template, preview, adding (never replacing), duplicates, problem rows, dates, quotes, new pets, Export CSV round trip, formula-safe export, log and pet limits |
+| Stool, vomit & vet type | Stool and vomit labels, vet visit types, older Diarrhea logs converted |
+| Add to last log | Adding details to the most recent log instead of starting a new one |
+| Food & mood routine | Food and mood items in the Daily Routine |
+| Food amounts, multiple foods & food trends | Amounts, units, calories, quick foods, several foods per log, food charts |
+| Vet summary v4 | Medicine frequency, food list, mood, label breakdowns, chart marks |
+| Import v4 columns | Newer spreadsheet columns |
+| Storage | Compact cloud saves, storage meter, near-full warning, full vault kept on the device |
+| Custom measures | Setting up measures, routine, form, chart, summary, spreadsheet |
 
 ## When a test fails
 
