@@ -506,6 +506,16 @@ h1 {
   overflow-wrap: anywhere;
 }
 .record:hover { border-color: var(--line-2); }
+/* Same-day repeats of one event ("Stool ×3"): one card, one line per entry */
+.record-group {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 12px 14px 4px;
+  overflow-wrap: anywhere;
+}
+.record.record-sub { border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; padding: 8px 0; margin-top: 8px; }
+.record.record-sub .metrics { margin-top: 4px; }
 .record-top {
   display: flex;
   align-items: flex-start;

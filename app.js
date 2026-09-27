@@ -286,7 +286,7 @@
       return;
     }
 
-    $('records').innerHTML = rs.map(function (r) {
+    function card(r, sub) {
       var bits = [];
       var rp = state.pets.find(function (x) { return x.id === r.petId; });
       // Every value is escaped: vault data can be written by anyone with the code.
@@ -312,12 +312,15 @@
       var pills = kinds.length
         ? kinds.map(function (k) { return '<span class="type-pill ' + esc(k) + '">' + esc(label(k)) + '</span>'; }).join('')
         : '<span class="type-pill">Note</span>';
+      // Inside a group the pill and date are on the group; each entry shows its time
+      var when = sub ? (r.loggedAt ? timeOf(r.loggedAt) : '') : '';
       return '' +
-        '<div class="record" data-id="' + esc(r.id) + '">' +
+        '<div class="record' + (sub ? ' record-sub' : '') + '" data-id="' + esc(r.id) + '">' +
           '<div class="record-top">' +
             '<div class="record-top-left">' +
-              '<div class="record-type">' + pills + '</div>' +
-              '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
+              (sub ? '<div class="record-date">' + esc(when || 'Time not recorded') + '</div>'
+                : '<div class="record-type">' + pills + '</div>' +
+                  '<div class="record-date">' + esc(formatDate(r.date)) + '</div>') +
             '</div>' +
             '<div class="record-actions">' +
               '<button class="ghost tiny" data-action="edit" type="button">Edit</button>' +
@@ -330,6 +333,29 @@
           }).join('') + '</div>' : '') +
           (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
         '</div>';
+    }
+    // Repeated events on one day (e.g. three stools logged from Daily Routine)
+    // share one card, "Stool ×3", with each one as a line inside it.
+    var GROUPED = ['stool', 'urine', 'vomit', 'symptom'];
+    function groupKey(r) {
+      var onlyEvent = r.tags.length === 1 && GROUPED.indexOf(r.tags[0]) >= 0 && !has(r.weight) && !has(r.mood) &&
+        !has(r.activity) && !has(r.cost) && !foodItemsOf(r).length && !r.meds.length && !(r.readings || []).length;
+      return onlyEvent ? r.date + '|' + r.tags[0] : null;
+    }
+    var groups = {};
+    rs.forEach(function (r) { var k = groupKey(r); if (k) (groups[k] = groups[k] || []).push(r); });
+    var drawn = {};
+    $('records').innerHTML = rs.map(function (r) {
+      var k = groupKey(r);
+      if (!k || groups[k].length < 2) return card(r, false);
+      if (drawn[k]) return '';
+      drawn[k] = true;
+      var tag = r.tags[0];
+      return '<div class="record-group">' +
+        '<div class="record-type"><span class="type-pill ' + esc(tag) + '">' + esc(label(tag)) + ' ×' + groups[k].length + '</span></div>' +
+        '<div class="record-date">' + esc(formatDate(r.date)) + '</div>' +
+        groups[k].map(function (x) { return card(x, true); }).join('') +
+      '</div>';
     }).join('');
 
     if (total > rs.length) {
