@@ -613,6 +613,11 @@ async function routine() {
   const proItem = (pepper().routine || []).find((it) => it.med === 'Proviable-DC');
   check('a starred medicine takes its latest dose', proItem && proItem.note === 'Probiotic', proItem);
   check('checklist has both medicines and a weigh-in, none done', A.routine().length === 3 && A.routine().every((r) => !r.done), A.routine().map((r) => r.name));
+  check('routine rows show when each item was last logged',
+    /Last logged yesterday/.test(A.row('Famotidine').status.textContent) &&
+    /Last logged yesterday/.test(A.row('Proviable-DC').status.textContent) &&
+    /Last logged yesterday/.test(A.row('Weigh-in').status.textContent),
+    A.routine().map((r) => [r.name, r.status && r.status.textContent]));
   check('the routine syncs to the other device', ((B.state().pets.find((p) => p.id === 'p-pepper').routine) || []).length === 3);
 
   A.click('logAllMeds'); await settle();

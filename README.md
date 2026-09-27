@@ -10,6 +10,7 @@ A responsive web app for tracking the health and daily care of your pets. Works 
 - Trend charts for weight, mood, activity, cost, and GI episodes (weekly)
 - Search, edit, and delete individual logs
 - Pet summary with care snapshot and stats
+- Daily Routine quick logging, including how long it has been since each routine item was last logged
 - Export data as CSV or JSON; import from JSON backup
 - Fully responsive — bottom tab navigation on mobile
 

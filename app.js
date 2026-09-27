@@ -307,6 +307,39 @@
       return ROUTINE_SINGLES[kind] ? it.kind === kind : (isMedItem(it) && normName(it.med) === normName(med));
     });
   }
+  // Most recent calendar day on which this routine item appears anywhere in
+  // the pet's history. This intentionally uses all logs (not just routine-made
+  // logs), so a supplement entered through the full form still counts.
+  function lastRoutineDate(pet, item) {
+    var last = '', t = today();
+    state.records.forEach(function (r) {
+      if (r.petId !== pet.id || !r.date || r.date > t || r.date <= last) return;
+      var found = false;
+      if (item.kind === 'measure') {
+        found = (r.readings || []).some(function (x) { return x.m === item.m; });
+      } else if (ROUTINE_SINGLES[item.kind]) {
+        found = has(r[item.kind]);
+      } else {
+        found = (r.meds || []).some(function (m) { return normName(m.name) === normName(item.med); });
+      }
+      if (found) last = r.date;
+    });
+    return last;
+  }
+  function dayNumber(dateStr) {
+    var p = String(dateStr || '').split('-');
+    if (p.length !== 3) return NaN;
+    return Math.round(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])) / 864e5);
+  }
+  function routineRecency(pet, item) {
+    var last = lastRoutineDate(pet, item);
+    if (!last) return 'Never logged';
+    var days = dayNumber(today()) - dayNumber(last);
+    if (days === 0) return 'Last logged today';
+    if (days === 1) return 'Last logged yesterday';
+    if (days > 1) return 'Last logged ' + days + ' days ago';
+    return 'Last logged ' + formatDate(last);
+  }
   // The most recent food logged for a pet, as the food item's default
   function lastFood(petId) {
     var f = '';
@@ -446,7 +479,7 @@
         var weightKey = draftKey(it, 'weight');
         return '<div class="routine-row">' +
           '<div class="routine-check" aria-hidden="true">✓</div>' +
-          '<div class="routine-main"><b>' + title + '</b><span>Not yet today</span></div>' +
+          '<div class="routine-main"><b>' + title + '</b><span>Not yet today · ' + esc(routineRecency(p, it)) + '</span></div>' +
           '<div class="routine-actions">' +
             (isWeight
               ? '<input type="number" step="any" min="0" inputmode="decimal" placeholder="' + (weightUnit() === 'kg' ? 'kg' : 'lb') + '"' +
@@ -657,7 +690,7 @@
           (ms.levels || []).map(function (l) { return '<option value="' + esc(l) + '">' + esc(l) + '</option>'; }).join('') + '</select>';
     var sub = row.reading
       ? 'Latest ' + esc(fmtMeasureValue(ms, row.reading.v)) + (row.reading.t ? ' at ' + esc(timeText(row.reading.t)) : '') + ' · ' + row.count + ' today'
-      : 'Not yet today';
+      : 'Not yet today · ' + esc(routineRecency(p, it));
     return '<div class="routine-row' + (row.reading ? ' done' : '') + '">' +
       '<div class="routine-check" aria-hidden="true">✓</div>' +
       '<div class="routine-main"><b>' + esc(ms.name) + '</b><span>' + sub + '</span></div>' +
