@@ -19,7 +19,7 @@
   //   2. Push, and wait until the new version is live on GitHub Pages.
   //   3. Bump minVersion() in the Firestore rules to match, then Publish.
   // Updates that don't need this can be pushed without changing any of them.
-  var DATA_VERSION = 7; // 3: symptom/play labels. 4: Stool/vet labels. 5: custom measures. 6: structured food amounts + food presets. 7: multiple foods per log + food trends
+  var DATA_VERSION = 8; // 3: symptom/play labels. 4: Stool/vet labels. 5: custom measures. 6: structured food amounts + food presets. 7: multiple foods per log + food trends. 8: event types in Daily Routine
   var newerDataSeen = false;
   var updateNotice = '';   // message for the reload banner, if any
   var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
@@ -44,6 +44,13 @@
   var VET_TYPES = { scheduled: 'Scheduled', unscheduled: 'Unscheduled', emergency: 'Emergency' };
   // Routine items there's one of per pet (medicines can be several). Read while loading saved data.
   var ROUTINE_SINGLES = { weight: 'Weigh-in', food: 'Food', mood: 'Mood' };
+  var ROUTINE_EVENTS = {
+    symptom: { title: 'Symptom', labelKind: 'symptom' },
+    vomit: { title: 'Vomit', labelKind: 'vomit' },
+    stool: { title: 'Stool', labelKind: 'stool' },
+    activity: { title: 'Activity', labelKind: 'play' },
+    vet: { title: 'Vet visit' }
+  };
   var FOOD_PRESET_LIMIT = 30;
   var FOOD_UNITS = {
     can: { one: 'can', many: 'cans', kind: 'count' },
@@ -310,14 +317,16 @@
     });
     return best;
   }
-  function isMedItem(it) { return !ROUTINE_SINGLES[it.kind] && it.kind !== 'measure'; }
+  function isMedItem(it) { return !ROUTINE_SINGLES[it.kind] && it.kind !== 'measure' && it.kind !== 'event'; }
   function routineTitle(it, pet) {
     if (it.kind === 'measure') { var ms = measureById(pet || activePet(), it.m); return ms ? ms.name : 'Measure'; }
+    if (it.kind === 'event') return (ROUTINE_EVENTS[it.tag] && ROUTINE_EVENTS[it.tag].title) || 'Event';
     return ROUTINE_SINGLES[it.kind] || it.med;
   }
   function routineItemFor(pet, kind, med) {
     return (pet.routine || []).find(function (it) {
       if (kind === 'measure') return it.kind === 'measure' && it.m === med; // med carries the measure id
+      if (kind === 'event') return it.kind === 'event' && it.tag === med; // med carries the event tag
       return ROUTINE_SINGLES[kind] ? it.kind === kind : (isMedItem(it) && normName(it.med) === normName(med));
     });
   }
@@ -331,6 +340,8 @@
       var found = false;
       if (item.kind === 'measure') {
         found = (r.readings || []).some(function (x) { return x.m === item.m; });
+      } else if (item.kind === 'event') {
+        found = hasTag(r, item.tag);
       } else if (ROUTINE_SINGLES[item.kind]) {
         found = has(r[item.kind]);
       } else {
@@ -784,7 +795,8 @@
   function toggleRoutine(pet, item) {
     if (!pet) return toast('Add a pet first');
     var single = ROUTINE_SINGLES[item.kind];
-    var existing = routineItemFor(pet, item.kind, item.kind === 'measure' ? item.m : item.med);
+    var lookup = item.kind === 'measure' ? item.m : item.kind === 'event' ? item.tag : item.med;
+    var existing = routineItemFor(pet, item.kind, lookup);
     if (existing) {
       pet.routine = pet.routine.filter(function (it) { return it !== existing; });
       toast(routineTitle(existing, pet) + ' removed from daily routine');
@@ -797,6 +809,18 @@
         save();
         render();
         return toast(ms.name + ' added to daily routine');
+      }
+      if (item.kind === 'event') {
+        var cfg = ROUTINE_EVENTS[item.tag];
+        if (!cfg) return toast('That event type cannot be added to Daily Routine');
+        var ev = { id: uid(), kind: 'event', tag: item.tag, labels: Array.isArray(item.labels) ? item.labels.slice() : [] };
+        if (item.playSize) ev.playSize = item.playSize;
+        if (item.vetType) ev.vetType = item.vetType;
+        if (item.activity !== '' && item.activity != null && isFinite(Number(item.activity)) && Number(item.activity) > 0) ev.activity = Number(item.activity);
+        pet.routine = (pet.routine || []).concat([ev]);
+        delete pet.sample;
+        save(); render();
+        return toast(cfg.title + ' added to daily routine');
       }
       if (!single && !name) return toast('Enter a medicine name first');
       var entry = item.kind === 'weight' ? { id: uid(), kind: 'weight' }
@@ -831,6 +855,14 @@
         });
         return { item: item, log: latestLog, med: null, reading: latest, count: count };
       }
+      if (item.kind === 'event') {
+        var eventLogs = todays.filter(function (r) { return hasTag(r, item.tag); });
+        var latestEvent = null;
+        eventLogs.forEach(function (r) {
+          if (!latestEvent || String(r.loggedAt || '') >= String(latestEvent.loggedAt || '')) latestEvent = r;
+        });
+        return { item: item, log: latestEvent, med: null, count: eventLogs.length };
+      }
       var match = null;
       for (var i = 0; i < todays.length && !match; i++) {
         var r = todays[i];
@@ -849,6 +881,40 @@
       return { item: item, log: match ? match.log : null, med: match ? match.med : null };
     });
   }
+  function eventLabelsForRecord(r, tag) {
+    var cfg = ROUTINE_EVENTS[tag];
+    if (!cfg || !cfg.labelKind) return [];
+    var key = LABEL_KINDS[cfg.labelKind].logKey;
+    return (r && r[key]) || [];
+  }
+  function routineEventDefaultsText(it) {
+    var bits = (it.labels || []).slice();
+    if (it.tag === 'activity') {
+      if (it.playSize) bits.unshift(PLAY_SIZES[it.playSize] || it.playSize);
+      if (has(it.activity)) bits.push(it.activity + ' min');
+    }
+    if (it.tag === 'vet' && it.vetType) bits.push(VET_TYPES[it.vetType] || it.vetType);
+    return bits.length ? 'Default: ' + bits.join(' · ') : 'One-tap ' + routineTitle(it).toLowerCase() + ' log';
+  }
+  function eventRowHtml(p, row, i) {
+    var it = row.item, log = row.log;
+    var stop = '<button class="star" data-stop="' + i + '" type="button" title="Remove from Daily Routine" aria-label="Remove from Daily Routine" aria-pressed="true">★</button>';
+    var bits = log ? eventLabelsForRecord(log, it.tag).slice() : [];
+    if (log && it.tag === 'activity') {
+      if (log.playSize) bits.unshift(PLAY_SIZES[log.playSize] || log.playSize);
+      if (has(log.activity)) bits.push(log.activity + ' min');
+    }
+    if (log && it.tag === 'vet' && log.vetType) bits.push(VET_TYPES[log.vetType] || log.vetType);
+    var sub = log ? ((log.loggedAt ? 'Latest ' + timeOf(log.loggedAt) : 'Logged today') + ' · ' + row.count + ' today') : ('Not yet today · ' + routineRecency(p, it));
+    var desc = log && bits.length ? bits.join(' · ') : routineEventDefaultsText(it);
+    return '<div class="routine-row routine-event routine-event-' + esc(it.tag) + (log ? ' done' : '') + '">' +
+      '<div class="routine-check" aria-hidden="true">✓</div>' +
+      '<div class="routine-main"><b>' + esc(routineTitle(it)) + '</b><span class="routine-desc">' + esc(desc) + '</span><span>' + esc(sub) + '</span></div>' +
+      '<div class="routine-actions"><button class="sage tiny" data-log="' + i + '" type="button">' + (log ? 'Log another' : 'Log') + '</button>' +
+        (log ? '<button class="ghost tiny" data-undo="' + i + '" type="button">Undo latest</button>' : '') + stop + '</div>' +
+    '</div>';
+  }
+
   function renderToday() {
     var card = $('todayCard');
     var p = activePet();
@@ -860,7 +926,7 @@
     if (!rows.length) {
       var suggestions = suggestMeds(p);
       list.innerHTML =
-        '<p class="routine-intro">Tap ★ next to a medicine, or the weight, food or mood field in the log form, and it will appear here every day, ready to log with one tap.</p>' +
+        '<p class="routine-intro">Tap ★ next to a medicine, event, weight, food, mood or custom measurement in the log form, and it will appear here for quick logging.</p>' +
         (suggestions.length
           ? '<p class="small-label" style="margin-top:0">Given often lately</p><div class="chip-row" style="margin-bottom:0">' + suggestions.map(function (m, i) {
               return '<button class="chip" type="button" data-suggest="' + i + '">★ ' + esc(m) + '</button>';
@@ -922,11 +988,12 @@
     }
 
     var doneCount = rows.filter(function (r) { return r.log; }).length;
-    var remaining = rows.map(function (r, i) { return i; }).filter(function (i) { return !rows[i].log && rows[i].item.kind !== 'measure'; });
+    var remaining = rows.map(function (r, i) { return i; }).filter(function (i) { return !rows[i].log && rows[i].item.kind !== 'measure' && rows[i].item.kind !== 'event'; });
     list.innerHTML =
       '<div class="routine-list">' + rows.map(function (row, i) {
         var it = row.item, log = row.log;
         if (it.kind === 'measure') return measureRowHtml(p, row, i);
+        if (it.kind === 'event') return eventRowHtml(p, row, i);
         var isWeight = it.kind === 'weight', isMood = it.kind === 'mood', isFood = it.kind === 'food';
         var title = esc(routineTitle(it));
         var stop = '<button class="star" data-stop="' + i + '" type="button" title="Stop repeating daily" aria-label="Stop repeating daily" aria-pressed="true">★</button>';
@@ -992,6 +1059,7 @@
       var ozEl = list.querySelector('[data-row="' + i + '"][data-field="weightOz"]');
       var it = rows[i].item;
       if (it.kind === 'food') return { item: it, foods: readRoutineFoodEditor(i) };
+      if (it.kind === 'event') return { item: it };
       return { item: it, note: field(i, 'note'), weight: lbEl ? readWeight(lbEl, ozEl) : '' };
     }
 
@@ -1128,9 +1196,9 @@
     list.querySelectorAll('[data-stop]').forEach(function (b) {
       b.addEventListener('click', function () {
         var it = rows[Number(b.getAttribute('data-stop'))].item;
-        var what = it.kind === 'weight' ? 'the daily weigh-in' : it.kind === 'food' ? 'daily food' : it.kind === 'mood' ? 'daily mood' : routineTitle(it, p);
+        var what = it.kind === 'weight' ? 'the daily weigh-in' : it.kind === 'food' ? 'daily food' : it.kind === 'mood' ? 'daily mood' : it.kind === 'event' ? routineTitle(it, p) + ' quick log' : routineTitle(it, p);
         if (!confirm('Stop showing ' + what + ' every day?\n\nToday\'s log isn\'t affected. You can add it back with ★ in the log form.')) return;
-        toggleRoutine(p, { kind: it.kind, med: it.med, m: it.m });
+        toggleRoutine(p, { kind: it.kind, med: it.med, m: it.m, tag: it.tag });
       });
     });
     if ($('logAllMeds')) $('logAllMeds').addEventListener('click', function () { logRoutineItems(p.id, remaining.map(entry), true); });
@@ -1151,7 +1219,7 @@
   // a weigh-in left blank is skipped instead of blocking the others.
   function logRoutineItems(petId, entries, lenient) {
     var now = new Date().toISOString();
-    var meds = [], weight = '', foods = [], mood = '';
+    var meds = [], weight = '', foods = [], mood = '', events = [];
     var pet = state.pets.find(function (x) { return x.id === petId; });
     for (var i = 0; i < entries.length; i++) {
       var en = entries[i], it = en.item;
@@ -1181,28 +1249,46 @@
       } else if (it.kind === 'mood') {
         if (!(en.mood >= 1 && en.mood <= 5)) continue;
         mood = en.mood;
+      } else if (it.kind === 'event') {
+        if (!ROUTINE_EVENTS[it.tag]) continue;
+        events.push(it);
       } else {
         meds.push({ name: it.med, note: String(en.note || '').trim(), at: now });
       }
     }
-    if (!meds.length && weight === '' && !foods.length && mood === '') return toast('Nothing to log yet');
-    var target = todayRecordFor(petId);
-    if (!target) {
-      target = blankRecord(petId, today());
-      target.loggedAt = now;
-      target.routine = true;
-      state.records.push(target);
+    if (!meds.length && weight === '' && !foods.length && mood === '' && !events.length) return toast('Nothing to log yet');
+    var target = null;
+    if (meds.length || weight !== '' || foods.length || mood !== '') {
+      target = todayRecordFor(petId);
+      if (!target) {
+        target = blankRecord(petId, today());
+        target.loggedAt = now;
+        target.routine = true;
+        state.records.push(target);
+      }
+      target.meds = target.meds.concat(meds);
     }
-    target.meds = target.meds.concat(meds);
     [['weight', weight], ['mood', mood]].forEach(function (pair) {
       if (pair[1] === '') return;
       var t = target;
+      if (!t) return;
       if (has(t[pair[0]])) { t = blankRecord(petId, today()); t.loggedAt = now; t.routine = true; state.records.push(t); }
       t[pair[0]] = pair[1];
     });
-    if (foods.length) {
+    if (foods.length && target) {
       setRecordFoodItems(target, foodItemsOf(target).concat(foods));
     }
+    events.forEach(function (it) {
+      var er = blankRecord(petId, today());
+      er.loggedAt = now;
+      er.routine = true;
+      er.tags = [it.tag];
+      var cfg = ROUTINE_EVENTS[it.tag];
+      if (cfg && cfg.labelKind) er[LABEL_KINDS[cfg.labelKind].logKey] = (it.labels || []).slice();
+      if (it.tag === 'activity') { if (it.playSize) er.playSize = it.playSize; if (has(it.activity)) er.activity = it.activity; }
+      if (it.tag === 'vet' && it.vetType) er.vetType = it.vetType;
+      state.records.push(er);
+    });
     entries.forEach(function (en) {
       delete routineDrafts[petId + ':' + en.item.id + ':note'];
       delete routineDrafts[petId + ':' + en.item.id + ':weight'];
@@ -1216,6 +1302,7 @@
     if (weight !== '') done.push('Weight');
     if (foods.length) done.push('Food');
     if (mood !== '') done.push('Mood');
+    events.forEach(function (it) { done.push(routineTitle(it)); });
     toast(done.length === 1 ? done[0] + ' logged' : done.length + ' items logged');
   }
   // Today's routine log for a pet: the latest log the routine itself created
@@ -1277,7 +1364,14 @@
   function undoRoutineLog(row) {
     var r = row.log;
     if (row.med) r.meds = r.meds.filter(function (m) { return m !== row.med; });
-    else {
+    else if (row.item.kind === 'event') {
+      var tag = row.item.tag;
+      r.tags = (r.tags || []).filter(function (t) { return t !== tag; });
+      var cfg = ROUTINE_EVENTS[tag];
+      if (cfg && cfg.labelKind) r[LABEL_KINDS[cfg.labelKind].logKey] = [];
+      if (tag === 'activity') { r.playSize = ''; r.playKinds = []; if (r.routine) r.activity = ''; }
+      if (tag === 'vet') r.vetType = '';
+    } else {
       if (row.item.kind === 'food') setRecordFoodItems(r, []);
       else r[row.item.kind] = ''; // 'weight' or 'mood'
     }
@@ -1399,6 +1493,9 @@
     set($('starWeight'), !!(p && routineItemFor(p, 'weight')));
     set($('starFood'), !!(p && routineItemFor(p, 'food')));
     set($('starMood'), !!(p && routineItemFor(p, 'mood')));
+    $('rTags').querySelectorAll('[data-routine-tag]').forEach(function (b) {
+      set(b, !!(p && routineItemFor(p, 'event', b.getAttribute('data-routine-tag'))));
+    });
     $('medRows').querySelectorAll('.med-row').forEach(function (row) {
       set(row.querySelector('.star'), !!(p && routineItemFor(p, 'medication', row.querySelector('.med-name').value)));
     });
@@ -4058,6 +4155,13 @@
       if (!Array.isArray(p.routine)) return;
       p.routine.forEach(function (it) {
         if (it && isMedItem(it) && typeof it.note !== 'string') it.note = lastMedNote(st.records, p.id, it.med);
+        if (it && it.kind === 'event') {
+          if (!ROUTINE_EVENTS[it.tag]) return;
+          it.labels = Array.isArray(it.labels) ? it.labels.filter(function (x) { return typeof x === 'string' && x; }) : [];
+          if (it.activity !== '' && it.activity != null) { it.activity = Number(it.activity); if (!(it.activity > 0) || !isFinite(it.activity)) delete it.activity; }
+          if (it.playSize && !PLAY_SIZES[it.playSize]) delete it.playSize;
+          if (it.vetType && !VET_TYPES[it.vetType]) delete it.vetType;
+        }
         if (it && it.kind === 'food') {
           var rf = Array.isArray(it.foods) ? it.foods.map(normalizeFoodItem).filter(function (x) { return x.name; }) : [];
           if (!rf.length && it.note) rf = [normalizeFoodItem({ name: it.note, amount: it.foodAmount, unit: it.foodUnit || 'can', presetId: it.foodPresetId })];
@@ -4611,6 +4715,17 @@
       b.addEventListener('click', function () {
         b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true');
         renderLabelPanel();
+      });
+    });
+    $('rTags').querySelectorAll('[data-routine-tag]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var tag = b.getAttribute('data-routine-tag');
+        var cfg = ROUTINE_EVENTS[tag] || {};
+        var labels = cfg.labelKind ? (formLabels[cfg.labelKind] || []).slice() : [];
+        toggleRoutine(formPet(), { kind: 'event', tag: tag, labels: labels,
+          playSize: tag === 'activity' ? formPlaySize : '',
+          vetType: tag === 'vet' ? formVetType : '',
+          activity: tag === 'activity' ? $('rActivity').value : '' });
       });
     });
     $('chartMode').addEventListener('change', renderChart);

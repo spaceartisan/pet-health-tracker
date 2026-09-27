@@ -859,6 +859,10 @@ h1 {
 /* ============ LOG FORM: TAGS, MEDICINES, STARS ============ */
 .type-fields { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-routine-item { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.tag-routine-item .tag-chip { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+.tag-routine-star { min-height: 34px; width: 30px; border-radius: 10px 999px 999px 10px; background: var(--field); border: 1px solid var(--line-2); }
+.tag-routine-star[aria-pressed="true"] { background: var(--amber-soft); }
 .tag-chip {
   min-height: 34px; padding: 6px 12px; border-radius: 999px;
   background: var(--field); color: var(--ink-2); border: 1px solid var(--line-2);
@@ -1393,4 +1397,12 @@ body.vr-open { overflow: hidden; }
   .routine-food-line .routine-food-amount { grid-column: 1; }
   .routine-food-line .routine-food-unit { grid-column: 2; }
   .routine-food-line .routine-food-remove { grid-column: 3; }
+}
+
+/* Repeatable event quick-logs (stool, vomit, symptom, activity, vet) stay readable on phones. */
+@media (max-width: 560px) {
+  .routine-row.routine-event { grid-template-columns: 32px minmax(0, 1fr); align-items: start; }
+  .routine-row.routine-event .routine-check { grid-row: 1 / span 2; align-self: center; }
+  .routine-row.routine-event .routine-actions { grid-column: 2; width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .routine-row.routine-event .routine-actions .star { margin-left: auto; }
 }
