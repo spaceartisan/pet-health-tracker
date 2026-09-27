@@ -1724,7 +1724,8 @@
     try { var u = localStorage.getItem('petHealth.weightDisplay'); if (u === 'lb' || u === 'kg') return u; } catch (e) {}
     return 'lboz';
   }
-  function trimNum(n, digits) { return Number(n).toFixed(digits).replace(/\.?0+$/, ''); }
+  // Trailing zeros after the decimal point only (190 stays 190, 2.50 becomes 2.5)
+  function trimNum(n, digits) { var t = Number(n).toFixed(digits); return t.indexOf('.') < 0 ? t : t.replace(/\.?0+$/, ''); }
   // One weight, e.g. "12 lb 9 oz", "12.56 lb" or "5.7 kg"
   function fmtWeight(lb, unit) {
     unit = unit || weightUnit();
@@ -3830,7 +3831,7 @@
     };
   }
 
-  function renderVetReport(sum, unit, fullLog, marks, include) {
+  function renderVetReport(sum, unit, fullLog, marks, include, charts) {
     var p = sum.pet;
     function wt(v) { return esc(fmtWeight(v, unit)); }
     function signed(v, digits) { return (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v).toFixed(digits); }
@@ -3865,6 +3866,15 @@
       h += weightSparkline(sum.weight && sum.weight.points.length > 1 ? sum.weight : null, unit, sum.events, sum.from, sum.to, marks);
     }
     h += '</section>';
+
+    // Chosen trend strips, on the weight chart's timeline
+    charts = charts || {};
+    var strips = VET_CHARTS.filter(function (c) { return charts[c.key] && sum.trends && sum.trends[c.key]; });
+    if (strips.length) {
+      h += '<section class="vr-trends"><h2>Trends</h2>' + strips.map(function (c, i) {
+        return trendStrip(c.key, sum.trends[c.key], sum.from, sum.to, i === strips.length - 1);
+      }).join('') + '</section>';
+    }
 
     // Medicines
     h += '<section><h2>Medicines</h2>';
@@ -4031,12 +4041,6 @@
     h += '<footer class="vr-foot">Recorded by the owner in Pet Health Tracker · Created ' + esc(formatDate(today())) + '</footer>';
     return h;
   }
-  // Small weight chart for the printout, drawn as SVG so it prints crisply.
-  // Spaced by date, so gaps between weigh-ins show as gaps.
-  // Weight over the whole period, with rows underneath marking symptoms,
-  // vomiting and diarrhea, so a vet can see whether they line up with weight
-  // changes. Shapes, not colors, tell the events apart so it prints in black
-  // and white. Drawn as SVG so it prints crisply.
   // A small chart for one measure on the vet summary: numbers as a line with
   // the normal range shaded; levels as dots on a row per level.
   function measureSparkline(m, from, to) {
@@ -4114,6 +4118,175 @@
   function vetMarks() {
     try { return JSON.parse(localStorage.getItem('petHealth.vetMarks') || '{}') || {}; } catch (e) { return {}; }
   }
+  // ===== VET SUMMARY: TREND STRIPS =====
+  // Optional small charts under the weight chart, one per strip, all on the
+  // same timeline as the weight chart so a vet can read straight down a date
+  // ("vomiting started the week the food changed, and weight dipped after").
+  // Black and grey only, so they print in black and white.
+  var VET_CHARTS = [
+    { key: 'food', choice: 'Food intake' },
+    { key: 'mood', choice: 'Mood' },
+    { key: 'activity', choice: 'Activity minutes' },
+    { key: 'gi', choice: 'Vomit & diarrhea' },
+    { key: 'stool', choice: 'Stool' },
+    { key: 'symptom', choice: 'Symptoms' },
+    { key: 'play', choice: 'Play' }
+  ];
+  function vetChartChoices() {
+    try { return JSON.parse(localStorage.getItem('petHealth.vetCharts') || '{}') || {}; } catch (e) { return {}; }
+  }
+  // The data behind each strip, or null where the period has nothing to show
+  function vetTrendData(pet, from, to) {
+    var recs = state.records.filter(function (r) { return r.petId === pet.id && r.date >= from && r.date <= to; });
+    var out = {};
+    function daily(valueOf) {
+      var byDay = {};
+      recs.forEach(function (r) { var v = valueOf(r); if (v !== null) byDay[r.date] = (byDay[r.date] || 0) + v; });
+      return Object.keys(byDay).sort().map(function (d) { return { date: d, value: byDay[d] }; });
+    }
+    function mean(pts) { return pts.reduce(function (t, p) { return t + p.value; }, 0) / pts.length; }
+
+    // Food: calories when any were recorded, otherwise the most used unit
+    var items = [];
+    recs.forEach(function (r) { foodItemsOf(r).forEach(function (f) { items.push(f); }); });
+    var unit = items.some(function (f) { return Number(f.kcal) > 0; }) ? 'kcal' : null;
+    if (!unit) {
+      var uses = {};
+      items.forEach(function (f) { if (Number(f.amount) > 0 && FOOD_UNITS[f.unit]) uses[f.unit] = (uses[f.unit] || 0) + 1; });
+      unit = Object.keys(uses).sort(function (a, b) { return uses[b] - uses[a]; })[0] || null;
+    }
+    if (unit) {
+      var food = daily(function (r) {
+        var t = null;
+        foodItemsOf(r).forEach(function (f) {
+          var v = unit === 'kcal' ? (Number(f.kcal) > 0 ? Number(f.kcal) : '')
+            : (Number(f.amount) > 0 ? convertFoodAmount(Number(f.amount), f.unit, unit, foodItemConversionPreset(pet, f)) : '');
+          if (v !== '' && isFinite(Number(v))) t = (t || 0) + Number(v);
+        });
+        return t;
+      });
+      if (food.length) {
+        var last7 = food.filter(function (p) { return p.date >= shiftDay(to, -6); });
+        out.food = { kind: 'line', points: food, unit: unit === 'kcal' ? 'kcal' : foodUnitLabel(unit, 2),
+          avg: mean(food), recent: last7.length ? mean(last7) : null };
+      }
+    }
+    var mood = daily(function (r) { return has(r.mood) && isFinite(Number(r.mood)) ? Number(r.mood) : null; });
+    // Several ratings on one day: use their average
+    var moodCounts = {};
+    recs.forEach(function (r) { if (has(r.mood) && isFinite(Number(r.mood))) moodCounts[r.date] = (moodCounts[r.date] || 0) + 1; });
+    mood.forEach(function (p) { p.value = p.value / moodCounts[p.date]; });
+    if (mood.length) out.mood = { kind: 'line', points: mood, min: 1, max: 5, avg: mean(mood),
+      low: Math.min.apply(null, mood.map(function (p) { return p.value; })) };
+    var act = daily(function (r) { return has(r.activity) && Number(r.activity) > 0 ? Number(r.activity) : null; });
+    if (act.length) out.activity = { kind: 'bars', points: act, avg: mean(act), total: act.reduce(function (t, p) { return t + p.value; }, 0) };
+
+    // Weekly counts, as two stacked series: [dark, light]
+    function weekly(dark, light) {
+      var weeks = {};
+      recs.forEach(function (r) {
+        var d = dark(r), l = light ? light(r) : 0;
+        if (!d && !l) return;
+        var w = weeks[mondayOf(r.date)] || (weeks[mondayOf(r.date)] = { week: mondayOf(r.date), dark: 0, light: 0 });
+        w.dark += d; w.light += l;
+      });
+      var list = Object.keys(weeks).sort().map(function (k) { return weeks[k]; });
+      return list.length ? list : null;
+    }
+    function sumOf(list, k) { return list.reduce(function (t, w) { return t + w[k]; }, 0); }
+    var gi = weekly(function (r) { return hasTag(r, 'vomit') ? 1 : 0; }, function (r) { return isDiarrhea(r) ? 1 : 0; });
+    if (gi) out.gi = { kind: 'weeks', weeks: gi, dark: 'Vomit', light: 'Diarrhea', darkN: sumOf(gi, 'dark'), lightN: sumOf(gi, 'light') };
+    var isNormal = function (r) { return (r.stoolKinds || []).length && r.stoolKinds.every(function (k) { return normName(k) === 'normal'; }); };
+    var stool = weekly(function (r) { return hasTag(r, 'stool') && !isNormal(r) ? 1 : 0; }, function (r) { return hasTag(r, 'stool') && isNormal(r) ? 1 : 0; });
+    if (stool) out.stool = { kind: 'weeks', weeks: stool, dark: 'Not normal', light: 'Normal', darkN: sumOf(stool, 'dark'), lightN: sumOf(stool, 'light') };
+    var sym = weekly(function (r) { return hasTag(r, 'symptom') ? 1 : 0; });
+    if (sym) out.symptom = { kind: 'weeks', weeks: sym, dark: 'Symptom logs', darkN: sumOf(sym, 'dark') };
+    var play = weekly(function (r) { return hasTag(r, 'activity') && (r.playSize === 'big' || r.playSize === 'decent') ? 1 : 0; },
+      function (r) { return hasTag(r, 'activity') && r.playSize !== 'big' && r.playSize !== 'decent' ? 1 : 0; });
+    if (play) out.play = { kind: 'weeks', weeks: play, dark: 'Big or decent', light: 'Short, tiny or unsized', darkN: sumOf(play, 'dark'), lightN: sumOf(play, 'light') };
+    return out;
+  }
+  // One strip. Same width and left margin as the weight chart, so dates line up.
+  function trendStrip(key, t, from, to, withDates) {
+    var W = 640, padL = 80, padR = 12, padT = 18, plotH = 44, axisH = withDates ? 20 : 4;
+    var H = padT + plotH + axisH;
+    var t0 = new Date(from + 'T00:00:00').getTime(), t1 = new Date(to + 'T00:00:00').getTime();
+    function x(d) { return padL + (t1 === t0 ? 0.5 : (new Date(d + 'T00:00:00').getTime() - t0) / (t1 - t0)) * (W - padL - padR); }
+    var right = W - padR, base = padT + plotH;
+    var names = { food: ['Food', t.unit ? t.unit + '/day' : ''], mood: ['Mood', '1–5'], activity: ['Activity', 'min/day'],
+      gi: ['Vomit &', 'diarrhea /wk'], stool: ['Stool', 'per week'], symptom: ['Symptoms', 'per week'], play: ['Play', 'per week'] }[key];
+    var svg = '<text x="4" y="' + (padT + 14) + '" class="vr-strip-name">' + esc(names[0]) + '</text>' +
+      '<text x="4" y="' + (padT + 28) + '">' + esc(names[1]) + '</text>';
+    // Faint lines at the quarter dates the weight chart labels
+    var span = dayCount(from, to);
+    if (span >= 14) [1, 2, 3].forEach(function (q) {
+      var qx = x(shiftDay(from, Math.round((span - 1) * q / 4))).toFixed(1);
+      svg += '<line x1="' + qx + '" y1="' + padT + '" x2="' + qx + '" y2="' + base + '" stroke="#eee"/>';
+    });
+    svg += '<line x1="' + padL + '" y1="' + base + '" x2="' + right + '" y2="' + base + '" stroke="#ccc"/>';
+    var caption = [];
+    function num(v, d) { return trimNum(v, d); }
+    if (t.kind === 'line' || t.kind === 'bars') {
+      var vals = t.points.map(function (p) { return p.value; });
+      // Amounts start at zero, so a drop in intake looks as big as it is
+      var lo = t.min !== undefined ? t.min : 0;
+      var hi = t.max !== undefined ? t.max : Math.max.apply(null, vals);
+      if (hi === lo) hi = lo + 1;
+      var y = function (v) { return padT + (1 - (v - lo) / (hi - lo)) * plotH; };
+      svg += '<text x="' + (padL - 6) + '" y="' + (padT + 4) + '" text-anchor="end">' + esc(num(hi, 1)) + '</text>' +
+        '<text x="' + (padL - 6) + '" y="' + base + '" text-anchor="end">' + esc(num(lo, 1)) + '</text>';
+      if (t.kind === 'line') {
+        if (t.avg !== undefined) svg += '<line x1="' + padL + '" y1="' + y(t.avg).toFixed(1) + '" x2="' + right + '" y2="' + y(t.avg).toFixed(1) + '" stroke="#999" stroke-dasharray="3 3"/>';
+        svg += '<polyline fill="none" stroke="#222" stroke-width="1.4" points="' + t.points.map(function (p) { return x(p.date).toFixed(1) + ',' + y(p.value).toFixed(1); }).join(' ') + '"/>';
+        if (t.points.length <= 40) t.points.forEach(function (p) { svg += '<circle cx="' + x(p.date).toFixed(1) + '" cy="' + y(p.value).toFixed(1) + '" r="1.8" fill="#222"/>'; });
+      } else {
+        var bw = Math.max(1.5, (right - padL) / Math.max(1, span) * 0.7);
+        t.points.forEach(function (p) {
+          svg += '<rect x="' + (x(p.date) - bw / 2).toFixed(1) + '" y="' + y(p.value).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + (base - y(p.value)).toFixed(1) + '" fill="#222"/>';
+        });
+      }
+      if (key === 'food') caption.push('avg ' + num(t.avg, t.unit === 'kcal' ? 0 : 2) + ' ' + t.unit + '/day' + (t.recent !== null && t.points.length > 7 ? ' · last 7 days ' + num(t.recent, t.unit === 'kcal' ? 0 : 2) : '') + ' (dashed: average)');
+      if (key === 'mood') caption.push('avg ' + num(t.avg, 1) + ' · lowest ' + num(t.low, 1) + ' (dashed: average)');
+      if (key === 'activity') caption.push(t.points.length + (t.points.length === 1 ? ' day' : ' days') + ' · avg ' + num(t.avg, 0) + ' min on those days');
+    } else {
+      var peak = Math.max.apply(null, t.weeks.map(function (w) { return w.dark + w.light; }));
+      var yb = function (v) { return base - v / peak * plotH; };
+      svg += '<text x="' + (padL - 6) + '" y="' + (padT + 4) + '" text-anchor="end">' + peak + '</text>' +
+        '<text x="' + (padL - 6) + '" y="' + base + '" text-anchor="end">0</text>';
+      t.weeks.forEach(function (w) {
+        var a = w.week < from ? from : w.week, end = shiftDay(w.week, 7);
+        var x0 = x(a) + 1, x1 = Math.min(right, end > to ? right : x(end)) - 1;
+        if (x1 - x0 < 1.5) x1 = x0 + 1.5;
+        svg += '<rect x="' + x0.toFixed(1) + '" y="' + yb(w.dark).toFixed(1) + '" width="' + (x1 - x0).toFixed(1) + '" height="' + (base - yb(w.dark)).toFixed(1) + '" fill="#222"><title>' + esc('Week of ' + shortDate(w.week) + ': ' + t.dark + ' ' + w.dark + (t.light ? ', ' + t.light + ' ' + w.light : '')) + '</title></rect>';
+        if (w.light) svg += '<rect x="' + x0.toFixed(1) + '" y="' + yb(w.dark + w.light).toFixed(1) + '" width="' + (x1 - x0).toFixed(1) + '" height="' + (yb(w.dark) - yb(w.dark + w.light)).toFixed(1) + '" fill="#bbb"/>';
+      });
+    }
+    // Caption (and legend for two-tone bars) along the top of the strip
+    var cx = padL;
+    if (t.kind === 'weeks') {
+      [[t.dark, t.darkN, '#222'], [t.light, t.lightN, '#bbb']].forEach(function (s) {
+        if (!s[0] || !s[1]) return;
+        var text = s[0] + ' ' + s[1];
+        svg += '<rect x="' + cx + '" y="4" width="8" height="8" fill="' + s[2] + '"/><text x="' + (cx + 12) + '" y="12">' + esc(text) + '</text>';
+        cx += 12 + text.length * 5.6 + 14;
+      });
+    } else {
+      svg += '<text x="' + cx + '" y="12">' + esc(caption.join(' · ')) + '</text>';
+    }
+    if (withDates) {
+      svg += '<text x="' + padL + '" y="' + (H - 4) + '">' + esc(shortDate(from)) + '</text>' +
+        '<text x="' + right + '" y="' + (H - 4) + '" text-anchor="end">' + esc(shortDate(to)) + '</text>';
+      if (span >= 14) [1, 2, 3].forEach(function (q) {
+        var d = shiftDay(from, Math.round((span - 1) * q / 4));
+        svg += '<text x="' + x(d).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle">' + esc(shortDate(d)) + '</text>';
+      });
+    }
+    return '<svg class="vr-chart vr-strip" data-strip="' + key + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(names[0] + ' ' + names[1]) + ' over the period">' + svg + '</svg>';
+  }
+  // Weight over the whole period, spaced by date so gaps between weigh-ins
+  // show as gaps, with optional rows underneath marking symptoms, vomiting,
+  // diarrhea and medicine/food changes. Shapes, not colors, tell the events
+  // apart so it prints in black and white. SVG, so it prints crisply.
   function weightSparkline(w, u, events, from, to, marks) {
     var LANES = VET_MARKS.filter(function (l) {
       return marks && marks[l.key] && events && events[l.key] && events[l.key].length;
@@ -4230,11 +4403,19 @@
     // Only offer marks that have something to show in this period
     var offered = VET_MARKS.filter(function (l) { return sum.events[l.key].length; });
     var include = vetMeasureChoices();
+    sum.trends = vetTrendData(pet, from, to);
+    var charts = vetChartChoices();
+    var chartOffers = VET_CHARTS.filter(function (c) { return sum.trends[c.key]; });
     report.innerHTML =
       '<div class="vr-toolbar">' +
         (offered.length
           ? '<div class="vr-marks"><span>Mark on the weight chart:</span>' + offered.map(function (l) {
               return '<label><input type="checkbox" data-mark="' + l.key + '"' + (marks[l.key] ? ' checked' : '') + '> ' + l.choice + '</label>';
+            }).join('') + '</div>'
+          : '') +
+        (chartOffers.length
+          ? '<div class="vr-marks"><span>Add charts:</span>' + chartOffers.map(function (c) {
+              return '<label><input type="checkbox" data-chart="' + c.key + '"' + (charts[c.key] ? ' checked' : '') + '> ' + c.choice + '</label>';
             }).join('') + '</div>'
           : '') +
         (sum.measures.length
@@ -4246,23 +4427,17 @@
         '<button class="sage" id="vrPrint" type="button">Print / Save as PDF</button>' +
         '<button class="secondary" id="vrClose" type="button">Close</button>' +
       '</div>' +
-      '<article class="vr-page">' + renderVetReport(sum, unit, fullLog, marks, include) + '</article>';
-    report.querySelectorAll('[data-mark]').forEach(function (box) {
-      box.addEventListener('change', function () {
-        marks[box.getAttribute('data-mark')] = box.checked;
-        try { localStorage.setItem('petHealth.vetMarks', JSON.stringify(marks)); } catch (e) {}
-        var top = report.scrollTop;
-        report.querySelector('.vr-page').innerHTML = renderVetReport(sum, unit, fullLog, marks, include);
-        report.scrollTop = top;
-      });
-    });
-    report.querySelectorAll('[data-include]').forEach(function (box) {
-      box.addEventListener('change', function () {
-        include[box.getAttribute('data-include')] = box.checked;
-        try { localStorage.setItem('petHealth.vetMeasures', JSON.stringify(include)); } catch (e) {}
-        var top = report.scrollTop;
-        report.querySelector('.vr-page').innerHTML = renderVetReport(sum, unit, fullLog, marks, include);
-        report.scrollTop = top;
+      '<article class="vr-page">' + renderVetReport(sum, unit, fullLog, marks, include, charts) + '</article>';
+    // Each group of checkboxes updates its remembered choices and redraws the page
+    [['data-mark', marks, 'petHealth.vetMarks'], ['data-chart', charts, 'petHealth.vetCharts'], ['data-include', include, 'petHealth.vetMeasures']].forEach(function (g) {
+      report.querySelectorAll('[' + g[0] + ']').forEach(function (box) {
+        box.addEventListener('change', function () {
+          g[1][box.getAttribute(g[0])] = box.checked;
+          try { localStorage.setItem(g[2], JSON.stringify(g[1])); } catch (e) {}
+          var top = report.scrollTop;
+          report.querySelector('.vr-page').innerHTML = renderVetReport(sum, unit, fullLog, marks, include, charts);
+          report.scrollTop = top;
+        });
       });
     });
     report.hidden = false;

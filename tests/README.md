@@ -63,7 +63,7 @@ If anything fails, it lists which check and what it found instead. Don't push un
 | Add to last log | Adding details to the most recent log instead of starting a new one |
 | Food & mood routine | Food and mood items in the Daily Routine |
 | Food amounts, multiple foods & food trends | Amounts, units, calories, quick foods, several foods per log, food charts |
-| Vet summary v4 | Medicine frequency, food list, mood, label breakdowns, chart marks |
+| Vet summary v4 | Medicine frequency, food list, mood, label breakdowns, chart marks, optional trend charts |
 | Import v4 columns | Newer spreadsheet columns |
 | Storage | Compact cloud saves, storage meter, near-full warning, full vault kept on the device |
 | Custom measures | Setting up measures, routine, form, chart, summary, spreadsheet |

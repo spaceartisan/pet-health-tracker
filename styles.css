@@ -1249,6 +1249,11 @@ body.vr-open { overflow: hidden; }
 .vr-scroll { overflow-x: auto; }
 .vr-chart { display: block; width: 100%; height: auto; margin-top: 10px; font-family: var(--sans); font-size: 11px; fill: #555; }
 .vr-page h3.vr-sub { font-size: 13px; margin: 14px 0 2px; }
+/* Trend strips sit flush under each other so dates line up down the page */
+.vr-trends .vr-strip { margin-top: 0; }
+.vr-trends .vr-strip + .vr-strip { border-top: 1px solid #f0f0f0; }
+.vr-strip .vr-strip-name { font-weight: 600; fill: #222; }
+.vr-trends { break-inside: avoid; page-break-inside: avoid; }
 .vr-foot { margin-top: 28px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 11px; color: #555; }
 @media (max-width: 720px) { .vr-page { margin: 0 0 40px; padding: 20px 16px; box-shadow: none; } }
 @media print {
