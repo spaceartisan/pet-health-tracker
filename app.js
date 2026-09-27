@@ -8,7 +8,7 @@
   var STORAGE_KEY = 'petHealth.responsive.v120';
   // Event tags a user picks. Everything else about a log (weight, medication,
   // meal) is derived from the data it holds — see kindsOf().
-  var TAGS = ['symptom', 'vomit', 'stool', 'activity', 'vet'];
+  var TAGS = ['symptom', 'vomit', 'stool', 'urine', 'activity', 'vet'];
   // App version, for keeping out-of-date copies of the app from damaging data.
   // Every cloud save carries it (_v) plus a fresh write stamp (_w), and the
   // Firestore rules reject saves below their minimum version. Logs also carry
@@ -19,7 +19,7 @@
   //   2. Push, and wait until the new version is live on GitHub Pages.
   //   3. Bump minVersion() in the Firestore rules to match, then Publish.
   // Updates that don't need this can be pushed without changing any of them.
-  var DATA_VERSION = 8; // 3: symptom/play labels. 4: Stool/vet labels. 5: custom measures. 6: structured food amounts + food presets. 7: multiple foods per log + food trends. 8: event types in Daily Routine
+  var DATA_VERSION = 9; // 3: symptom/play labels. 4: Stool/vet labels. 5: custom measures. 6: structured food amounts + food presets. 7: multiple foods per log + food trends. 8: event types in Daily Routine. 9: urination logs
   var newerDataSeen = false;
   var updateNotice = '';   // message for the reload banner, if any
   var cloudBlocked = false; // the cloud refused this copy's saves; wait for a reload
@@ -39,6 +39,10 @@
       presets: ['Hairball', 'Food', 'Bile/foam', 'Liquid'] },
     stool: { tag: 'stool', petKey: 'stoolLabels', logKey: 'stoolKinds', title: 'What was it like?', noun: 'stool',
       presets: ['Normal', 'Soft', 'Diarrhea', 'Hard', 'Blood', 'Mucus'] },
+    // Things a vet asks about: size of the clump (more or less urine than
+    // usual), straining (possible blockage), blood, and going outside the box
+    urine: { tag: 'urine', petKey: 'urineLabels', logKey: 'urineKinds', title: 'What was it like?', noun: 'urination',
+      presets: ['Normal', 'Large', 'Small', 'Straining', 'Blood', 'Outside the box'] },
     play: { tag: 'activity', petKey: 'playLabels', logKey: 'playKinds', title: 'What kind of play?', noun: 'play' }
   };
   var VET_TYPES = { scheduled: 'Scheduled', unscheduled: 'Unscheduled', emergency: 'Emergency' };
@@ -48,6 +52,7 @@
     symptom: { title: 'Symptom', labelKind: 'symptom' },
     vomit: { title: 'Vomit', labelKind: 'vomit' },
     stool: { title: 'Stool', labelKind: 'stool' },
+    urine: { title: 'Urination', labelKind: 'urine' },
     activity: { title: 'Activity', labelKind: 'play' },
     vet: { title: 'Vet visit' }
   };
@@ -65,10 +70,10 @@
   };
   var MEASURE_LIMIT = 10;        // custom measures per pet
   var editingKeepReadings = [];  // readings on the log being edited that the form doesn't show
-  var formLabels = { symptom: [], vomit: [], stool: [], play: [] };
+  var formLabels = { symptom: [], vomit: [], stool: [], urine: [], play: [] };
   var formPlaySize = '';
   var formVetType = '';
-  var labelEditMode = { symptom: false, vomit: false, stool: false, play: false };
+  var labelEditMode = { symptom: false, vomit: false, stool: false, urine: false, play: false };
   // Color themes (used by the picker further down; defined here because startup reads it)
   var THEMES = [
     { id: 'garden', name: 'Garden', about: 'Warm cream and sage (default)', page: '#f7f3ec', swatch: ['#f7f3ec', '#5e7d4f', '#b65a3a'] },
@@ -235,6 +240,9 @@
     var oddStool = [];
     recent.forEach(function (r) { if (hasTag(r, 'stool')) (r.stoolKinds || []).forEach(function (k) { var n = normName(k); if (n !== 'normal' && n !== 'diarrhea') oddStool.push(k); }); });
     if (oddStool.length) notes.push('Stool: ' + labelCounts(oddStool));
+    var oddUrine = [];
+    recent.forEach(function (r) { if (hasTag(r, 'urine')) (r.urineKinds || []).forEach(function (k) { if (normName(k) !== 'normal') oddUrine.push(k); }); });
+    if (oddUrine.length) notes.push('Urination: ' + labelCounts(oddUrine));
     var sym = recent.filter(function (r) { return hasTag(r, 'symptom'); });
     if (sym.length) {
       var symLabels = [];
@@ -292,6 +300,7 @@
       (r.symptoms || []).forEach(function (k) { bits.push(esc(k)); });
       (r.vomitKinds || []).forEach(function (k) { bits.push(esc(k)); });
       (r.stoolKinds || []).forEach(function (k) { bits.push(esc(k)); });
+      (r.urineKinds || []).forEach(function (k) { bits.push(esc(k)); });
       if (VET_TYPES[r.vetType]) bits.push(esc(VET_TYPES[r.vetType]) + ' visit');
       (r.readings || []).forEach(function (x) {
         var ms = measureById(rp, x.m);
@@ -2032,6 +2041,7 @@
     if (tagPressed('symptom')) html += group('symptom');
     if (tagPressed('vomit')) html += group('vomit');
     if (tagPressed('stool')) html += group('stool');
+    if (tagPressed('urine')) html += group('urine');
     if (tagPressed('activity')) {
       html += '<div class="label-group"><div class="label-group-head"><span>How big was the play?</span></div>' +
         '<div class="size-row">' + Object.keys(PLAY_SIZES).map(function (k) {
@@ -2361,12 +2371,12 @@
           }]
         }
       };
-    } else if (mode === 'play-weekly' || mode === 'symptom-weekly' || mode === 'stool-weekly') {
+    } else if (mode === 'play-weekly' || mode === 'symptom-weekly' || mode === 'stool-weekly' || mode === 'urine-weekly') {
       // Play sessions per week stacked by size, or symptom logs per week
       // stacked by label (the four most common get their own color).
       var isPlay = mode === 'play-weekly';
-      var labelTag = mode === 'stool-weekly' ? 'stool' : 'symptom';
-      var labelsOf = function (r) { return (mode === 'stool-weekly' ? r.stoolKinds : r.symptoms) || []; };
+      var labelTag = { 'stool-weekly': 'stool', 'urine-weekly': 'urine' }[mode] || 'symptom';
+      var labelsOf = function (r) { return (labelTag === 'symptom' ? r.symptoms : r[LABEL_KINDS[labelTag].logKey]) || []; };
       var events = rs.filter(function (r) { return hasTag(r, isPlay ? 'activity' : labelTag); });
       var keys, names = {}, colors = {}, keyOf;
       if (isPlay) {
@@ -2381,7 +2391,7 @@
           labelsOf(r).forEach(function (l) { var k = normName(l); tally[k] = (tally[k] || 0) + 1; spelled[k] = l; });
         });
         var top = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; }).slice(0, 4);
-        // Green means "fine": only a Normal stool gets it; other labels get
+        // Green means "fine": only a Normal stool or urination gets it; other labels get
         // the warm colors, so problems stand out.
         var palette = [C.series[1], C.series[2], C.series[3], C.series[4]];
         keys = top.concat(['other', 'none']);
@@ -2413,7 +2423,7 @@
       keys = keys.filter(function (k) { return series[k].some(function (n) { return n > 0; }); });
       labels = wks.map(shortWeekLabel);
       chartType = 'bar';
-      name = isPlay ? 'Activity' : mode === 'stool-weekly' ? 'Stool' : 'Symptoms';
+      name = isPlay ? 'Activity' : labelTag === 'symptom' ? 'Symptoms' : label(labelTag);
       data = events.length ? [1] : []; // marks "has data" for the empty check
       chartConfig = {
         type: 'bar',
@@ -2552,7 +2562,7 @@
       });
     }
 
-    var isStackedWeekly = mode === 'gi-weekly' || mode === 'play-weekly' || mode === 'symptom-weekly' || mode === 'stool-weekly';
+    var isStackedWeekly = mode === 'gi-weekly' || mode === 'play-weekly' || mode === 'symptom-weekly' || mode === 'stool-weekly' || mode === 'urine-weekly';
     var isFoodChart = mode === 'food';
     var isWeeklyMode = mode === 'vomit-weekly' || mode === 'diarrhea-weekly' || isStackedWeekly;
 
@@ -2652,7 +2662,7 @@
             title: function (items) { return 'Week of ' + (items[0] && items[0].label); },
             label: function (item) {
               var v = item.parsed.y;
-              var unit = mode === 'play-weekly' ? ['session', 'sessions'] : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? ['log', 'logs'] : ['episode', 'episodes'];
+              var unit = mode === 'play-weekly' ? ['session', 'sessions'] : (mode === 'symptom-weekly' || mode === 'stool-weekly' || mode === 'urine-weekly') ? ['log', 'logs'] : ['episode', 'episodes'];
               return item.dataset.label + ': ' + v + ' ' + (v === 1 ? unit[0] : unit[1]);
             }
           } : undefined
@@ -2666,7 +2676,7 @@
           stacked: isStackedWeekly,
           ticks: Object.assign({ precision: isFoodChart ? undefined : 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode || mode === 'mood' ? 1 : undefined }, weightTicks(), measureTicks()),
           grid: { color: C.grid },
-          title: isFoodChart ? { display: true, text: $('foodChartUnit').value === 'kcal' ? 'kcal' : foodUnitLabel($('foodChartUnit').value, 2), color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
+          title: isFoodChart ? { display: true, text: $('foodChartUnit').value === 'kcal' ? 'kcal' : foodUnitLabel($('foodChartUnit').value, 2), color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : (mode === 'symptom-weekly' || mode === 'stool-weekly' || mode === 'urine-weekly') ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
         },
         x: isTimeMode ? timeAxis() : {
           stacked: isStackedWeekly,
@@ -2988,7 +2998,7 @@
     fillFormReadings(r);
     setTags(r.tags);
     formLabels = { symptom: (r.symptoms || []).slice(), vomit: (r.vomitKinds || []).slice(),
-      stool: (r.stoolKinds || []).slice(), play: (r.playKinds || []).slice() };
+      stool: (r.stoolKinds || []).slice(), urine: (r.urineKinds || []).slice(), play: (r.playKinds || []).slice() };
     formPlaySize = r.playSize || '';
     formVetType = r.vetType || '';
     renderAppendHint();
@@ -3026,10 +3036,10 @@
     document.querySelectorAll('#measureRows [data-measure]').forEach(function (el) { el.value = ''; });
     $('rDate').value = today();
     setTags([]);
-    formLabels = { symptom: [], vomit: [], stool: [], play: [] };
+    formLabels = { symptom: [], vomit: [], stool: [], urine: [], play: [] };
     formPlaySize = '';
     formVetType = '';
-    labelEditMode = { symptom: false, vomit: false, stool: false, play: false };
+    labelEditMode = { symptom: false, vomit: false, stool: false, urine: false, play: false };
     renderAppendHint();
     renderLabelPanel();
     $('medRows').innerHTML = '';
@@ -3046,12 +3056,12 @@
   }
 
   function exportCsv() {
-    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'food amount', 'food unit', 'food kcal', 'food unit size', 'food unit size unit', 'food items json', 'medications', 'readings', 'note']];
+    var rows = [['pet', 'species', 'breed', 'date', 'types', 'symptoms', 'vomit', 'stool', 'urine', 'vet type', 'play size', 'play', 'weight', 'mood', 'activity', 'cost', 'food', 'food amount', 'food unit', 'food kcal', 'food unit size', 'food unit size unit', 'food items json', 'medications', 'readings', 'note']];
     state.records.forEach(function (r) {
       var p = state.pets.find(function (x) { return x.id === r.petId; }) || {};
       var meds = r.meds.map(function (m) { return m.name + (m.note ? ' (' + m.note + ')' : ''); }).join('; ');
       rows.push([p.name || '', p.species || '', p.breed || '', r.date, kindsOf(r).join('; '), (r.symptoms || []).join('; '),
-        (r.vomitKinds || []).join('; '), (r.stoolKinds || []).join('; '), r.vetType || '', r.playSize || '', (r.playKinds || []).join('; '),
+        (r.vomitKinds || []).join('; '), (r.stoolKinds || []).join('; '), (r.urineKinds || []).join('; '), r.vetType || '', r.playSize || '', (r.playKinds || []).join('; '),
         r.weight, r.mood, r.activity, r.cost, r.food, r.foodAmount, r.foodUnit, r.foodKcal, r.foodUnitSize, r.foodUnitSizeUnit, JSON.stringify(foodItemsOf(r)), meds, readingsText(p, r), r.note]);
     });
     // The byte-order mark tells Excel the file is UTF-8, so emoji and accents
@@ -3087,15 +3097,16 @@
     var p = activePet();
     var name = p ? p.name : 'Luna';
     var rows = [
-      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'vet type', 'play size', 'play', 'food', 'food amount', 'food unit', 'food kcal', 'food items json', 'mood', 'activity', 'cost', 'note', 'readings'],
-      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.', ''],
-      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Blood glucose=142 @08:00'],
-      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', '', '', '', '', '', '', 'Restless all evening', ''],
-      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', '', '', '', '', 'Big play at 10 pm', ''],
-      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', 'Fancy Feast Chicken', '1.35', 'can', '122', '', '', '', '', '1.35 cans eaten', ''],
-      ['Example', '9/23/2026', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '[{"name":"Fancy Feast Chicken","amount":0.75,"unit":"can","kcal":67.5},{"name":"Science Diet","amount":0.5,"unit":"pouch","kcal":38}]', '', '', '', 'Multiple foods can share one log by using food items json.', ''],
-      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', '', '', '', '', '', ''],
-      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', 'scheduled', '', '', '', '', '', '', '', '', '', '85', 'Annual checkup (' + name + ')', '']
+      ['pet', 'date', 'lb', 'oz', 'medications', 'tags', 'symptoms', 'vomit', 'stool', 'urine', 'vet type', 'play size', 'play', 'food', 'food amount', 'food unit', 'food kcal', 'food items json', 'mood', 'activity', 'cost', 'note', 'readings'],
+      ['Example', '2026-09-20', '12', '9', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Rows for the pet "Example" are skipped. Replace them with your own.', ''],
+      ['Example', '2026-09-20', '', '', 'Famotidine (1/4 of a 10 mg pill); Proviable-DC (Probiotic)', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Blood glucose=142 @08:00'],
+      ['Example', '9/21/2026', '', '', '', 'symptom', 'Restless; Begging for food', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'Restless all evening', ''],
+      ['Example', '9/22/2026', '', '', '', 'activity', '', '', '', '', '', 'big', 'Bed game; String', '', '', '', '', '', '', '', '', 'Big play at 10 pm', ''],
+      ['Example', '9/23/2026', '', '', '', 'vomit', '', 'Hairball', '', '', '', '', '', 'Fancy Feast Chicken', '1.35', 'can', '122', '', '', '', '', '1.35 cans eaten', ''],
+      ['Example', '9/23/2026', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '[{"name":"Fancy Feast Chicken","amount":0.75,"unit":"can","kcal":67.5},{"name":"Science Diet","amount":0.5,"unit":"pouch","kcal":38}]', '', '', '', 'Multiple foods can share one log by using food items json.', ''],
+      ['Example', '9/23/2026', '', '', '', 'urine', '', '', '', 'Straining; Small', '', '', '', '', '', '', '', '', '', '', '', 'Several small clumps', ''],
+      ['Example', '9/23/2026', '', '', '', 'stool', '', '', 'Soft', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+      ['Example', '9/24/2026', '', '', '', 'vet visit', '', '', '', '', 'scheduled', '', '', '', '', '', '', '', '', '', '85', 'Annual checkup (' + name + ')', '']
     ];
     download('pet-health-import-template.csv', rows.map(csvLine).join('\n'), 'text/csv');
     toast('Template downloaded');
@@ -3164,7 +3175,7 @@
     return JSON.stringify([r.petId, r.date, n(r.weight), n(r.mood), n(r.activity), n(r.cost), foodSig, t(r.note),
       (r.meds || []).map(function (m) { return t(m.name) + '|' + t(m.note); }).sort(),
       (r.tags || []).slice().sort(), (r.symptoms || []).map(t).sort(), t(r.playSize), (r.playKinds || []).map(t).sort(),
-      (r.vomitKinds || []).map(t).sort(), (r.stoolKinds || []).map(t).sort(), t(r.vetType),
+      (r.vomitKinds || []).map(t).sort(), (r.stoolKinds || []).map(t).sort(), (r.urineKinds || []).map(t).sort(), t(r.vetType),
       (r.readings || []).map(function (x) { return x.m + '|' + t(x.v) + '|' + (x.t || ''); }).sort()]);
   }
 
@@ -3176,7 +3187,7 @@
       weight: ['weight'], kg: ['kg', 'weight kg', 'weight (kg)'],
       meds: ['medications', 'medication', 'medicines', 'medicine', 'meds'],
       tags: ['tags', 'types', 'type', 'events'], symptoms: ['symptoms', 'symptom labels'],
-      vomit: ['vomit', 'vomit labels'], stool: ['stool', 'stool labels'], vetType: ['vet type', 'visit type'],
+      vomit: ['vomit', 'vomit labels'], stool: ['stool', 'stool labels'], urine: ['urine', 'urine labels', 'urination'], vetType: ['vet type', 'visit type'],
       readings: ['readings', 'measurements', 'measures'],
       playSize: ['play size', 'size'], play: ['play', 'play labels'],
       food: ['food', 'meal'], foodAmount: ['food amount', 'amount eaten', 'meal amount'], foodUnit: ['food unit', 'meal unit'],
@@ -3187,6 +3198,7 @@
     };
     var TAG_WORDS = { symptom: 'symptom', symptoms: 'symptom', vomit: 'vomit', vomiting: 'vomit', diarrhea: 'stool', diarrhoea: 'stool',
       stool: 'stool', poop: 'stool', 'bowel movement': 'stool',
+      urine: 'urine', urination: 'urine', urinate: 'urine', pee: 'urine',
       activity: 'activity', play: 'activity', vet: 'vet', 'vet visit': 'vet' };
     var DERIVED = ['weight', 'medication', 'medications', 'medicine', 'meal', 'food', 'note'];
     var plan = { adds: [], newPets: [], perPet: {}, duplicates: 0, examples: 0, problems: [], warnings: [], error: '' };
@@ -3267,11 +3279,12 @@
         var mm = /^(.*?)\s*\((.*)\)\s*$/.exec(m);
         return mm ? { name: mm[1].trim(), note: mm[2].trim() } : { name: m, note: '' };
       }).filter(function (m) { return m.name; });
-      var symptoms = list('symptoms'), playKinds = list('play'), vomitKinds = list('vomit');
-      // Labels imply their tag, so they're counted as symptoms / vomit / stool / play
+      var symptoms = list('symptoms'), playKinds = list('play'), vomitKinds = list('vomit'), urineKinds = list('urine');
+      // Labels imply their tag, so they're counted as symptoms / vomit / stool / urine / play
       if (symptoms.length && tags.indexOf('symptom') < 0) tags.push('symptom');
       if (vomitKinds.length && tags.indexOf('vomit') < 0) tags.push('vomit');
       if (stoolKinds.length && tags.indexOf('stool') < 0) tags.push('stool');
+      if (urineKinds.length && tags.indexOf('urine') < 0) tags.push('urine');
       if (vetType && tags.indexOf('vet') < 0) tags.push('vet');
       if ((size || playKinds.length) && tags.indexOf('activity') < 0) tags.push('activity');
 
@@ -3318,6 +3331,7 @@
       rec.playKinds = playKinds;
       rec.vomitKinds = vomitKinds;
       rec.stoolKinds = stoolKinds;
+      rec.urineKinds = urineKinds;
       rec.vetType = vetType;
       var foodJson = get('foodItems');
       if (foodJson) {
@@ -3627,7 +3641,7 @@
     // Other notes: symptoms, vet visits, and any log with a note, except
     // medicine-only logs (their notes are doses) and episodes (listed above)
     var notes = recs.filter(function (r) {
-      if (hasTag(r, 'vomit') || hasTag(r, 'stool')) return false;
+      if (hasTag(r, 'vomit') || hasTag(r, 'stool') || hasTag(r, 'urine')) return false;
       var medicineOnly = r.meds.length && !r.tags.length && !has(r.weight) && !foodItemsOf(r).length && !has(r.activity) && !has(r.mood);
       if (medicineOnly) return false;
       return !!r.note || hasTag(r, 'symptom') || hasTag(r, 'vet');
@@ -3807,6 +3821,7 @@
       visits: { count: visits.length, types: countLabels(visits.map(function (r) { return VET_TYPES[r.vetType] || ''; }).filter(Boolean)) },
       vomitLabels: countLabels([].concat.apply([], recs.filter(function (r) { return hasTag(r, 'vomit'); }).map(function (r) { return r.vomitKinds || []; }))),
       stoolLabels: countLabels([].concat.apply([], recs.filter(function (r) { return hasTag(r, 'stool'); }).map(function (r) { return r.stoolKinds || []; }))),
+      urineLabels: countLabels([].concat.apply([], recs.filter(function (r) { return hasTag(r, 'urine'); }).map(function (r) { return r.urineKinds || []; }))),
       // Dates of events to mark on the weight chart (one mark per day)
       events: {
         symptom: uniqueDates(recs.filter(function (r) { return hasTag(r, 'symptom'); })),
@@ -3827,6 +3842,7 @@
       vomit: episodes(function (r) { return hasTag(r, 'vomit'); }, 'vomitKinds'),
       diarrhea: episodes(isDiarrhea, 'stoolKinds'),
       stool: episodes(function (r) { return hasTag(r, 'stool'); }, 'stoolKinds'),
+      urine: episodes(function (r) { return hasTag(r, 'urine'); }, 'urineKinds'),
       notes: notes
     };
   }
@@ -3903,19 +3919,31 @@
     }
     h += '</section>';
 
-    // Vomiting and diarrhea
-    h += '<section><h2>Vomiting and stool</h2>';
-    if (sum.vomit.length || sum.stool.length) {
+    // Vomiting, stool and (when logged) urination, in one date-ordered table
+    var hasUrine = sum.urine.length > 0;
+    h += '<section><h2>' + (hasUrine ? 'Vomiting, stool and urination' : 'Vomiting and stool') + '</h2>';
+    if (sum.vomit.length || sum.stool.length || hasUrine) {
       var breakdown = function (list) { return list.length ? ' (' + list.map(function (l) { return esc(l.name) + ' ' + l.count; }).join(' · ') + ')' : ''; };
-      // Normal stools with no note are counted but not listed, so the table
-      // shows only what a vet would ask about.
-      var isRoutineStool = function (e) { return !e.note && e.labels.length && e.labels.every(function (l) { return normName(l) === 'normal'; }); };
-      var rows = sum.vomit.map(function (e) { return { date: e.date, what: 'Vomiting', labels: e.labels, note: e.note }; })
-        .concat(sum.stool.filter(function (e) { return !isRoutineStool(e); }).map(function (e) { return { date: e.date, what: 'Stool', labels: e.labels, note: e.note }; }))
+      // Normal stools and urinations with no note are counted but not listed,
+      // so the table shows only what a vet would ask about.
+      var isRoutine = function (e) { return !e.note && e.labels.length && e.labels.every(function (l) { return normName(l) === 'normal'; }); };
+      var listed = function (list, what) { return list.filter(function (e) { return !isRoutine(e); }).map(function (e) { return { date: e.date, what: what, labels: e.labels, note: e.note }; }); };
+      var rows = listed(sum.vomit, 'Vomiting').concat(listed(sum.stool, 'Stool'), listed(sum.urine, 'Urination'))
         .sort(function (a, b) { return a.date.localeCompare(b.date); });
-      var hidden = sum.stool.filter(isRoutineStool).length;
       h += '<p>Vomiting: <b>' + sum.vomit.length + '</b>' + breakdown(sum.vomitLabels) + '</p>' +
         '<p>Stool logs: <b>' + sum.stool.length + '</b>' + breakdown(sum.stoolLabels) + '</p>';
+      if (hasUrine) {
+        // How often, on the days it was logged (a day without logs is unknown, not zero)
+        var urineDays = {};
+        sum.urine.forEach(function (e) { urineDays[e.date] = true; });
+        var nDays = Object.keys(urineDays).length;
+        // The last week on its own, since a change in frequency is what matters
+        var weekFrom = shiftDay(sum.to, -6), weekDays = Object.keys(urineDays).filter(function (d) { return d >= weekFrom; }).length;
+        var weekN = sum.urine.filter(function (e) { return e.date >= weekFrom; }).length;
+        h += '<p>Urination logs: <b>' + sum.urine.length + '</b>' + breakdown(sum.urineLabels) +
+          ' · about ' + esc(trimNum(sum.urine.length / nDays, 1)) + ' a day on ' + nDays + (nDays === 1 ? ' day' : ' days') + ' logged' +
+          (sum.days > 14 && weekDays ? ' · last 7 days about ' + esc(trimNum(weekN / weekDays, 1)) + ' a day' : '') + '</p>';
+      }
       if (rows.length) {
         h += '<div class="vr-scroll"><table><tr><th>Date</th><th>Episode</th><th>Note</th></tr>' +
           rows.map(function (e) {
@@ -3925,7 +3953,11 @@
           }).join('') +
           '</table></div>';
       }
-      if (hidden) h += '<p class="vr-muted">' + hidden + ' normal ' + (hidden === 1 ? 'stool' : 'stools') + ' not listed.</p>';
+      var hiddenStool = sum.stool.filter(isRoutine).length, hiddenUrine = sum.urine.filter(isRoutine).length;
+      var hiddenParts = [];
+      if (hiddenStool) hiddenParts.push(hiddenStool + ' normal ' + (hiddenStool === 1 ? 'stool' : 'stools'));
+      if (hiddenUrine) hiddenParts.push(hiddenUrine + ' normal ' + (hiddenUrine === 1 ? 'urination' : 'urinations'));
+      if (hiddenParts.length) h += '<p class="vr-muted">' + hiddenParts.join(' and ') + ' not listed.</p>';
     } else {
       h += '<p class="vr-muted">None logged in this period.</p>';
     }
@@ -4001,7 +4033,7 @@
           r.meds.forEach(function (m) { bits.push(esc(m.name) + (m.note ? ' (' + esc(m.note) + ')' : '')); });
           r.tags.forEach(function (tg) { bits.push(esc(label(tg))); });
           if (PLAY_SIZES[r.playSize]) bits.push(esc(PLAY_SIZES[r.playSize]) + ' play');
-          (r.playKinds || []).concat(r.symptoms || [], r.vomitKinds || [], r.stoolKinds || []).forEach(function (l) { bits.push(esc(l)); });
+          (r.playKinds || []).concat(r.symptoms || [], r.vomitKinds || [], r.stoolKinds || [], r.urineKinds || []).forEach(function (l) { bits.push(esc(l)); });
           if (VET_TYPES[r.vetType]) bits.push(esc(VET_TYPES[r.vetType]) + ' visit');
           (r.readings || []).forEach(function (x) {
             var md = measureById(p, x.m);
@@ -4129,6 +4161,7 @@
     { key: 'activity', choice: 'Activity minutes' },
     { key: 'gi', choice: 'Vomit & diarrhea' },
     { key: 'stool', choice: 'Stool' },
+    { key: 'urine', choice: 'Urination' },
     { key: 'symptom', choice: 'Symptoms' },
     { key: 'play', choice: 'Play' }
   ];
@@ -4196,9 +4229,13 @@
     function sumOf(list, k) { return list.reduce(function (t, w) { return t + w[k]; }, 0); }
     var gi = weekly(function (r) { return hasTag(r, 'vomit') ? 1 : 0; }, function (r) { return isDiarrhea(r) ? 1 : 0; });
     if (gi) out.gi = { kind: 'weeks', weeks: gi, dark: 'Vomit', light: 'Diarrhea', darkN: sumOf(gi, 'dark'), lightN: sumOf(gi, 'light') };
-    var isNormal = function (r) { return (r.stoolKinds || []).length && r.stoolKinds.every(function (k) { return normName(k) === 'normal'; }); };
-    var stool = weekly(function (r) { return hasTag(r, 'stool') && !isNormal(r) ? 1 : 0; }, function (r) { return hasTag(r, 'stool') && isNormal(r) ? 1 : 0; });
-    if (stool) out.stool = { kind: 'weeks', weeks: stool, dark: 'Not normal', light: 'Normal', darkN: sumOf(stool, 'dark'), lightN: sumOf(stool, 'light') };
+    // Stool and urination: labelled only Normal (light) vs anything else (dark)
+    ['stool', 'urine'].forEach(function (tag) {
+      var key = LABEL_KINDS[tag].logKey;
+      var isNormal = function (r) { return (r[key] || []).length && r[key].every(function (k) { return normName(k) === 'normal'; }); };
+      var wk = weekly(function (r) { return hasTag(r, tag) && !isNormal(r) ? 1 : 0; }, function (r) { return hasTag(r, tag) && isNormal(r) ? 1 : 0; });
+      if (wk) out[tag] = { kind: 'weeks', weeks: wk, dark: 'Not normal', light: 'Normal', darkN: sumOf(wk, 'dark'), lightN: sumOf(wk, 'light') };
+    });
     var sym = weekly(function (r) { return hasTag(r, 'symptom') ? 1 : 0; });
     if (sym) out.symptom = { kind: 'weeks', weeks: sym, dark: 'Symptom logs', darkN: sumOf(sym, 'dark') };
     var play = weekly(function (r) { return hasTag(r, 'activity') && (r.playSize === 'big' || r.playSize === 'decent') ? 1 : 0; },
@@ -4214,7 +4251,7 @@
     function x(d) { return padL + (t1 === t0 ? 0.5 : (new Date(d + 'T00:00:00').getTime() - t0) / (t1 - t0)) * (W - padL - padR); }
     var right = W - padR, base = padT + plotH;
     var names = { food: ['Food', t.unit ? t.unit + '/day' : ''], mood: ['Mood', '1–5'], activity: ['Activity', 'min/day'],
-      gi: ['Vomit &', 'diarrhea /wk'], stool: ['Stool', 'per week'], symptom: ['Symptoms', 'per week'], play: ['Play', 'per week'] }[key];
+      gi: ['Vomit &', 'diarrhea /wk'], stool: ['Stool', 'per week'], urine: ['Urination', 'per week'], symptom: ['Symptoms', 'per week'], play: ['Play', 'per week'] }[key];
     var svg = '<text x="4" y="' + (padT + 14) + '" class="vr-strip-name">' + esc(names[0]) + '</text>' +
       '<text x="4" y="' + (padT + 28) + '">' + esc(names[1]) + '</text>';
     // Faint lines at the quarter dates the weight chart labels
@@ -4539,7 +4576,7 @@
   // on every read, so data written by an older copy of the app still loads.
   function blankRecord(petId, date) {
     return { id: uid(), v: DATA_VERSION, petId: petId, date: date, weight: '', mood: '', activity: '', cost: '', food: '', foodAmount: '', foodUnit: '', foodKcal: '', foodPresetId: '', foodUnitSize: '', foodUnitSizeUnit: '', foodItems: [], meds: [], tags: [], note: '',
-      symptoms: [], playSize: '', playKinds: [], vomitKinds: [], stoolKinds: [], vetType: '', readings: [] };
+      symptoms: [], playSize: '', playKinds: [], vomitKinds: [], stoolKinds: [], urineKinds: [], vetType: '', readings: [] };
   }
   // A stool log marked as diarrhea (what used to be a Diarrhea log)
   function isDiarrhea(r) {
@@ -4576,7 +4613,7 @@
     r.readings = (Array.isArray(r.readings) ? r.readings : []).filter(function (x) { return x && x.m && x.v !== '' && x.v != null; })
       .map(function (x) { var o = { m: String(x.m), v: typeof x.v === 'number' ? x.v : String(x.v) }; if (x.t) o.t = String(x.t); return o; });
     // Every field present, whether or not it was saved (cloud saves leave out empty ones)
-    ['symptoms', 'playKinds', 'vomitKinds', 'stoolKinds'].forEach(function (k) {
+    ['symptoms', 'playKinds', 'vomitKinds', 'stoolKinds', 'urineKinds'].forEach(function (k) {
       r[k] = Array.isArray(r[k]) ? r[k].filter(function (x) { return typeof x === 'string' && x; }) : [];
     });
     r.playSize = r.playSize ? String(r.playSize) : '';
@@ -4881,6 +4918,7 @@
     out.playKinds = union(remote.playKinds, local.playKinds);
     out.vomitKinds = union(remote.vomitKinds, local.vomitKinds);
     out.stoolKinds = union(remote.stoolKinds, local.stoolKinds);
+    out.urineKinds = union(remote.urineKinds, local.urineKinds);
     out.readings = uniqueReadings((remote.readings || []).concat(local.readings || []));
     if (!local.playSize && remote.playSize) out.playSize = remote.playSize;
     if (!local.vetType && remote.vetType) out.vetType = remote.vetType;
@@ -5090,7 +5128,7 @@
     return ({
       weight: 'Weight', food: 'Food intake', meal: 'Meal', medication: 'Medication',
       activity: 'Activity', symptom: 'Symptom', vet: 'Vet visit', measure: 'Measurement',
-      vomit: 'Vomit', diarrhea: 'Diarrhea', stool: 'Stool',
+      vomit: 'Vomit', diarrhea: 'Diarrhea', stool: 'Stool', urine: 'Urination',
       mood: 'Mood', cost: 'Cost', types: 'Types'
     })[t] || t;
   }

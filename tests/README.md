@@ -60,6 +60,7 @@ If anything fails, it lists which check and what it found instead. Don't push un
 | Weight units | Pounds and ounces, decimal pounds and kilograms: entry, storage in pounds, display, chart axis, checklist weigh-in |
 | Bulk import | CSV template, preview, adding (never replacing), duplicates, problem rows, dates, quotes, new pets, Export CSV round trip, formula-safe export, log and pet limits |
 | Stool, vomit & vet type | Stool and vomit labels, vet visit types, older Diarrhea logs converted |
+| Urination | Labels, log card, weekly chart, 14-day notes, vet summary section and chart, spreadsheet column and tag words |
 | Add to last log | Adding details to the most recent log instead of starting a new one |
 | Food & mood routine | Food and mood items in the Daily Routine |
 | Food amounts, multiple foods & food trends | Amounts, units, calories, quick foods, several foods per log, food charts |

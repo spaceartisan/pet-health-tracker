@@ -985,6 +985,10 @@ h1 {
 .vet-btn[aria-pressed="true"] { background: var(--pill-vet-bg); color: var(--pill-vet-fg); }
 .type-pill.stool { background: var(--pill-diarrhea-bg); color: var(--pill-diarrhea-fg); }
 .tag-chip.stool[aria-pressed="true"] { background: var(--pill-diarrhea-bg); color: var(--pill-diarrhea-fg); }
+/* Urination uses the meal (amber) pill colors, already defined for every theme */
+.label-chip.urine-label[aria-pressed="true"] { background: var(--pill-meal-bg); color: var(--pill-meal-fg); }
+.type-pill.urine { background: var(--pill-meal-bg); color: var(--pill-meal-fg); }
+.tag-chip.urine[aria-pressed="true"] { background: var(--pill-meal-bg); color: var(--pill-meal-fg); }
 .vet-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .label-chip .remove { margin-left: 4px; font-weight: 700; }
 .size-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }

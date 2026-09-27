@@ -6,13 +6,13 @@ A responsive web app for tracking the health and daily care of your pets. Works 
 
 ## Features
 
-- Track weight, meals, medications, activity, mood, symptoms, vomit/diarrhea episodes, and vet visits
+- Track weight, meals, medications, activity, mood, symptoms, vomit/diarrhea episodes, stool, urination, and vet visits
 - Log multiple foods in one entry, with amount/unit, reusable Quick Foods, optional package size, and calorie density
-- Trend charts: daily weight (with 7-day average and 30-day change), food intake (kcal or amount, with 7- and 30-day averages), mood, activity and cost; weekly counts of vomit, diarrhea, stool, symptoms and play
+- Trend charts: daily weight (with 7-day average and 30-day change), food intake (kcal or amount, with 7- and 30-day averages), mood, activity and cost; weekly counts of vomit, diarrhea, stool, urination, symptoms and play
 - Search, edit, and delete individual logs (shown 50 at a time)
 - Pet summary: latest weight, 30-day weight change, 30-day mood, last vet visit, and anything notable from the last 14 days
-- Daily Routine quick logging for medicines, weight, food, mood, custom measurements, and event types such as stool, vomit, symptoms, activity, and vet visits; repeatable events require their useful detail (such as stool/vomit labels or visit type), while retaining Log another, same-day counts, defaults, and last-logged recency
-- Vet summary for a chosen period, printable as PDF: weight, medicines, vomiting and stool, food intake by week, mood, play, symptoms and notes; optional trend charts (food, mood, activity, vomit & diarrhea, stool, symptoms, play) drawn on the weight chart's timeline so they can be read down by date
+- Daily Routine quick logging for medicines, weight, food, mood, custom measurements, and event types such as stool, urination, vomit, symptoms, activity, and vet visits; repeatable events require their useful detail (such as stool/vomit labels or visit type), while retaining Log another, same-day counts, defaults, and last-logged recency
+- Vet summary for a chosen period, printable as PDF: weight, medicines, vomiting, stool and urination, food intake by week, mood, play, symptoms and notes; optional trend charts (food, mood, activity, vomit & diarrhea, stool, urination, symptoms, play) drawn on the weight chart's timeline so they can be read down by date
 - Export data as CSV or JSON; import from JSON backup
 - Fully responsive — bottom tab navigation on mobile
 
@@ -167,3 +167,7 @@ A synced vault holds up to 50 pets, 5,000 logs and about 1 MB of data (Firestore
 ## Food logging
 
 Food logs can optionally record an amount and unit (can, pouch, cup, serving, piece, g, oz, kg, or lb). Each pet can keep up to 30 reusable food presets with a default amount/unit, optional package net weight, and an optional calorie declaration such as 90 kcal per can, 110 kcal per 100 g, or 3,700 kcal per kg. The app stores the calculated kcal on the log so historical intake does not change if a preset is edited later. Package weight enables conversions between a can/pouch and mass units. Legacy food-name-only logs remain valid. Since data v7 one log can hold several foods, each with its own amount and calories.
+
+## Urination (data v9)
+
+Urination logs work like stool logs: a **Urination** chip on the log form (and in Daily Routine) with fixed options (Normal, Large, Small, Straining, Blood, Outside the box) plus the pet's own labels. Anything other than Normal shows in the pet summary's "Last 14 days". The vet summary counts urinations, shows how often (per logged day, and for the last 7 days), and lists only the unusual ones. Spreadsheets use a `urine` column; `urine`, `urination` and `pee` work as tag words.
