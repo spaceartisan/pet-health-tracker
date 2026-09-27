@@ -570,7 +570,7 @@ async function everyday() {
   resetServer({ [CODE]: bad });
   A = openApp(makeClient('a'), linked(CODE, bad));
   await settle();
-  A.chart('types'); A.chart('weight');
+  A.chart('stool-weekly'); A.chart('weight');
   check('stored HTML is never turned into page elements', !A.d.getElementById('pwned') && !A.w.hacked);
   check('it\'s shown as plain text instead', A.$('records').textContent.includes('<img src=x'));
   A.close();
@@ -1171,7 +1171,10 @@ async function weightUnits() {
 
   // Existing decimal data (e.g. litter-box averages) shows in lb and oz
   const dec = SAMPLE[CODE].records.filter((x) => x.petId === 'p-pepper' && x.type === 'weight').pop();
+  // The log list shows 50 at a time; this log is the oldest, so search for it
+  A.$('search').value = dec.id; A.$('search').dispatchEvent(new A.w.Event('input'));
   check('existing decimal weights show in lb and oz', d.querySelector('.record[data-id="' + dec.id + '"]').textContent.includes('Wt ' + lbOz(dec.weight)), lbOz(dec.weight));
+  A.$('search').value = ''; A.$('search').dispatchEvent(new A.w.Event('input'));
 
   // Decimal pounds
   A.$('rWeight').value = '12'; A.$('rWeightOz').value = '8';
@@ -1616,7 +1619,7 @@ async function vetSummaryV4() {
   const medRow = (name) => [...rep().querySelectorAll('tr')].find((tr) => tr.querySelector('b') && tr.querySelector('b').textContent === name);
   check('daily medicine: days and weekly average', /89 of 89 days/.test(medRow('Famotidine').textContent) && /About 7 times a week/.test(medRow('Famotidine').textContent), medRow('Famotidine').textContent);
   check('weekly medicine: about once a week, no missed days', /4 of 27 days/.test(medRow('FortiFlora').textContent) && /About once a week/.test(medRow('FortiFlora').textContent) && !/[Mm]issed/.test(medRow('FortiFlora').textContent), medRow('FortiFlora').textContent);
-  check('occasional medicine: less than once a week', /Less than once a week/.test(medRow('Cerenia').textContent), medRow('Cerenia').textContent);
+  check('one-off medicine: shown as once, with its date', /^Once\s*Sep 1$/.test(medRow('Cerenia').children[2].textContent.trim()), medRow('Cerenia').children[2].textContent);
   const foodRows = [...rep().querySelectorAll('section')].find((s) => s.querySelector('h2').textContent === 'Food');
   check('food section lists each food in order', foodRows && /Science Diet/.test(foodRows.textContent) && foodRows.textContent.indexOf('Science Diet') < foodRows.textContent.indexOf('Bland diet') && /Days logged/.test(foodRows.textContent), foodRows && foodRows.textContent);
   const moods = data.records.filter((r) => r.petId === 'p-pepper' && r.date >= '2026-06-27' && r.mood !== '' && r.mood != null).map((r) => Number(r.mood));

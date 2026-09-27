@@ -133,14 +133,21 @@
   function refreshChartOptions() {
     var sel = $('chartMode');
     var current = sel.value;
-    sel.querySelectorAll('option[data-measure-opt]').forEach(function (o) { o.remove(); });
-    petMeasures(activePet()).forEach(function (ms) {
-      var o = document.createElement('option');
-      o.value = 'measure:' + ms.id;
-      o.textContent = ms.name + (ms.unit ? ' (' + ms.unit + ')' : '');
-      o.setAttribute('data-measure-opt', '1');
-      sel.appendChild(o);
-    });
+    sel.querySelectorAll('[data-measure-opt]').forEach(function (o) { o.remove(); });
+    var measures = petMeasures(activePet());
+    if (measures.length) {
+      var group = document.createElement('optgroup');
+      group.label = 'Measurements';
+      group.setAttribute('data-measure-opt', '1');
+      measures.forEach(function (ms) {
+        var o = document.createElement('option');
+        o.value = 'measure:' + ms.id;
+        o.textContent = ms.name + (ms.unit ? ' (' + ms.unit + ')' : '');
+        o.setAttribute('data-measure-opt', '1');
+        group.appendChild(o);
+      });
+      sel.appendChild(group);
+    }
     sel.value = current;
     if (sel.value !== current) sel.value = 'weight'; // that measure isn't on this pet
   }
@@ -150,7 +157,6 @@
     list.innerHTML = '';
     if (!state.pets.length) {
       list.innerHTML = '<div class="empty"><b>No pets yet</b>Add a pet to start tracking.</div>';
-      return;
     }
     state.pets.forEach(function (p) {
       var b = document.createElement('button');
@@ -170,6 +176,13 @@
       });
       list.appendChild(b);
     });
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.id = 'addPetBtn';
+    add.className = 'pet-row add-pet-row';
+    add.innerHTML = '<div class="pet-avatar">＋</div><div><b>Add a pet</b></div>';
+    add.addEventListener('click', openAddPetModal);
+    list.appendChild(add);
   }
 
   function renderSummary() {
@@ -179,7 +192,7 @@
       $('heroIcon').textContent = '🐾';
       $('heroName').innerHTML = 'No pet selected';
       $('heroMeta').textContent = 'Add a pet to begin tracking.';
-      ['sWeight', 'sMood', 'sMeds', 'sRecords'].forEach(function (id) { $(id).textContent = '—'; });
+      ['sWeight', 'sWeightChange', 'sMood', 'sVet'].forEach(function (id) { $(id).textContent = '—'; });
       $('careNotes').innerHTML = '<li>No pet selected.</li>';
       return;
     }
@@ -193,38 +206,57 @@
     $('deletePetBtn').addEventListener('click', function () { confirmDeletePet(p); });
     $('heroMeta').textContent = (p.species || 'Pet') + (p.breed ? ' · ' + p.breed : '') + age(p.birthday);
 
-    var weights = rs.filter(function (r) { return has(r.weight); }).sort(byDate);
-    var moods = rs.filter(function (r) { return has(r.mood); }).map(function (r) { return Number(r.mood); });
-    $('sWeight').textContent = weights.length ? fmtWeight(weights[weights.length - 1].weight) : '—';
+    var dw = dailyWeights(rs), lastW = dw.days.length - 1;
+    $('sWeight').textContent = lastW >= 0 ? fmtWeight(dw.values[lastW]) : '—';
+    // Same 30-day change as the weight chart (7-day averages)
+    var j30 = lastW >= 0 ? weight30Ref(dw.days) : -1;
+    $('sWeightChange').textContent = j30 >= 0 ? fmtWeightChange(dw.avg[lastW] - dw.avg[j30]) : '—';
+    var since30 = shiftDay(today(), -29);
+    var moods = rs.filter(function (r) { return has(r.mood) && isFinite(Number(r.mood)) && r.date >= since30; }).map(function (r) { return Number(r.mood); });
     $('sMood').textContent = moods.length ? avg(moods).toFixed(1) : '—';
-    $('sMeds').textContent = rs.reduce(function (n, r) { return n + r.meds.length; }, 0);
-    $('sRecords').textContent = rs.length;
+    var vetDates = rs.filter(function (r) { return hasTag(r, 'vet') && r.date <= today(); }).map(function (r) { return r.date; }).sort();
+    $('sVet').textContent = vetDates.length ? relativeDay(vetDates[vetDates.length - 1]) : '—';
 
+    // Only what's worth noticing from the last two weeks
+    var since14 = shiftDay(today(), -13);
+    var recent = rs.filter(function (r) { return r.date >= since14; });
     var notes = [];
-    if (rs.length) {
-      var latest = rs.slice().sort(function (a, b) { return b.date.localeCompare(a.date); })[0];
-      var kinds = kindsOf(latest).map(label);
-      notes.push('Last log: ' + latest.date + (kinds.length ? ' — ' + kinds.join(', ') : '') + '.');
-    } else {
-      notes.push("No logs yet. Add today's baseline.");
+    function countNote(n, one, many) { if (n) notes.push(n + ' ' + (n === 1 ? one : many)); }
+    function labelCounts(list) {
+      var c = {}, order = [];
+      list.forEach(function (l) { var k = normName(l); if (!c[k]) { c[k] = { name: l, n: 0 }; order.push(k); } c[k].n++; });
+      return order.map(function (k) { return c[k].name + (c[k].n > 1 ? ' ×' + c[k].n : ''); }).join(', ');
     }
-    var symptoms = rs.filter(function (r) { return hasTag(r, 'symptom'); }).length;
-    if (symptoms) notes.push(symptoms + ' symptom log' + (symptoms === 1 ? '' : 's') + ' recorded.');
-    // Highlight recent GI events (last 14 days) — these matter more by recency than total
-    var cutoffDay = new Date();
-    cutoffDay.setDate(cutoffDay.getDate() - 14);
-    var giCutoff = localDate(cutoffDay);
-    var recentVomit = rs.filter(function (r) { return hasTag(r, 'vomit') && r.date >= giCutoff; }).length;
-    var recentDiarrhea = rs.filter(function (r) { return isDiarrhea(r) && r.date >= giCutoff; }).length;
-    if (recentVomit) notes.push(recentVomit + ' vomit episode' + (recentVomit === 1 ? '' : 's') + ' in the last 14 days.');
-    if (recentDiarrhea) notes.push(recentDiarrhea + ' diarrhea episode' + (recentDiarrhea === 1 ? '' : 's') + ' in the last 14 days.');
-    var vets = rs.filter(function (r) { return hasTag(r, 'vet'); }).length;
-    if (vets) notes.push(vets + ' vet visit' + (vets === 1 ? '' : 's') + ' on file.');
-    var cost = rs.reduce(function (s, r) { return s + (Number(r.cost) || 0); }, 0);
-    if (cost) notes.push('Tracked care costs: $' + cost.toFixed(2) + '.');
+    var vomits = recent.filter(function (r) { return hasTag(r, 'vomit'); });
+    countNote(vomits.length, 'vomit episode', 'vomit episodes');
+    var diarrhea = recent.filter(isDiarrhea);
+    countNote(diarrhea.length, 'diarrhea episode', 'diarrhea episodes');
+    // Stool labels other than Normal and Diarrhea (already counted)
+    var oddStool = [];
+    recent.forEach(function (r) { if (hasTag(r, 'stool')) (r.stoolKinds || []).forEach(function (k) { var n = normName(k); if (n !== 'normal' && n !== 'diarrhea') oddStool.push(k); }); });
+    if (oddStool.length) notes.push('Stool: ' + labelCounts(oddStool));
+    var sym = recent.filter(function (r) { return hasTag(r, 'symptom'); });
+    if (sym.length) {
+      var symLabels = [];
+      sym.forEach(function (r) { symLabels = symLabels.concat(r.symptoms || []); });
+      notes.push(sym.length + ' symptom ' + (sym.length === 1 ? 'log' : 'logs') + (symLabels.length ? ': ' + labelCounts(symLabels) : ''));
+    }
+    var newMeds = [];
+    recent.forEach(function (r) {
+      r.meds.forEach(function (m) {
+        var k = normName(m.name);
+        if (newMeds.indexOf(m.name) >= 0) return;
+        var before = rs.some(function (o) { return o.date < since14 && o.meds.some(function (x) { return normName(x.name) === k; }); });
+        if (!before) newMeds.push(m.name);
+      });
+    });
+    if (newMeds.length) notes.push('Started: ' + newMeds.join(', '));
+    if (!notes.length) notes.push(rs.length ? 'Nothing unusual logged.' : 'No logs yet.');
     $('careNotes').innerHTML = notes.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('');
   }
 
+  var RECORDS_PAGE = 50;
+  var recordsShown = RECORDS_PAGE, recordsKey = null;
   function renderRecords() {
     var q = ($('search').value || '').toLowerCase();
     var rs = petRecords()
@@ -233,6 +265,12 @@
       // Newest day first; within a day, the most recently added log first.
       .sort(function (a, b) { return b.r.date.localeCompare(a.r.date) || b.i - a.i; })
       .map(function (x) { return x.r; });
+
+    // Long histories are shown a page at a time
+    var listKey = activePetId + '|' + q;
+    if (listKey !== recordsKey) { recordsKey = listKey; recordsShown = RECORDS_PAGE; }
+    var total = rs.length;
+    rs = rs.slice(0, recordsShown);
 
     if (!rs.length) {
       $('records').innerHTML = '<div class="empty"><b>No logs found</b>' +
@@ -284,6 +322,12 @@
           (r.note ? '<div class="note">' + esc(r.note) + '</div>' : '') +
         '</div>';
     }).join('');
+
+    if (total > rs.length) {
+      $('records').insertAdjacentHTML('beforeend', '<button class="ghost show-more" id="showMoreLogs" type="button">Show ' +
+        Math.min(RECORDS_PAGE, total - rs.length) + ' more <span>· ' + (total - rs.length) + ' older</span></button>');
+      $('showMoreLogs').addEventListener('click', function () { recordsShown += RECORDS_PAGE; renderRecords(); });
+    }
 
     // Bind record-action buttons
     $('records').querySelectorAll('.record').forEach(function (el) {
@@ -355,6 +399,14 @@
     var p = String(dateStr || '').split('-');
     if (p.length !== 3) return NaN;
     return Math.round(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])) / 864e5);
+  }
+  // "Today", "Yesterday", "12 days ago", or the date once it's months back
+  function relativeDay(d) {
+    var days = dayNumber(today()) - dayNumber(d);
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    if (days > 1 && days < 60) return days + ' days ago';
+    return formatDate(d);
   }
   function routineRecency(pet, item) {
     var last = lastRoutineDate(pet, item);
@@ -2059,6 +2111,28 @@
     });
   }
 
+  // One weight per day (the last weigh-in that day), sorted by date, with a
+  // 7-day average that smooths out day-to-day noise from the scale.
+  function dailyWeights(records) {
+    var byDay = {};
+    records.slice().sort(byDate).forEach(function (r) {
+      if (r.weight !== '' && r.weight != null && isFinite(Number(r.weight))) byDay[r.date] = Number(r.weight);
+    });
+    var days = Object.keys(byDay).sort();
+    var values = days.map(function (d) { return byDay[d]; });
+    var avg = days.map(function (d, i) {
+      var from = shiftDay(d, -6), sum = 0, n = 0;
+      for (var j = i; j >= 0 && days[j] >= from; j--) { sum += values[j]; n++; }
+      return Math.round(sum / n * 100) / 100;
+    });
+    return { days: days, values: values, avg: avg };
+  }
+  // Index of the last day at least 30 days before the latest one, or -1
+  function weight30Ref(days) {
+    var refDay = shiftDay(days[days.length - 1], -30);
+    for (var j = days.length - 1; j >= 0; j--) { if (days[j] <= refDay) return j; }
+    return -1;
+  }
   // Latest weight, plus change over 30 days and since the first weigh-in.
   // Changes compare 7-day averages so one odd reading doesn't skew them.
   function renderWeightSummary(days, values, avg) {
@@ -2071,12 +2145,8 @@
         ' (' + sign + Math.abs(pct).toFixed(1) + '%)</b></span>';
     }
     var parts = ['<span class="badge">Latest <b>' + esc(fmtWeight(values[last])) + '</b></span>'];
-    var ref = new Date(days[last] + 'T00:00:00');
-    ref.setDate(ref.getDate() - 30);
-    var refDay = localDate(ref);
-    for (var j = last; j >= 0; j--) {
-      if (days[j] <= refDay) { parts.push(change('30 days', j)); break; }
-    }
+    var j30 = weight30Ref(days);
+    if (j30 >= 0) parts.push(change('30 days', j30));
     if (last > 0) parts.push(change('Since ' + formatDate(days[0]), 0));
     $('chartSummary').innerHTML = parts.join('');
   }
@@ -2228,32 +2298,46 @@
       // Food is a longitudinal intake measure, so plot one daily total as a
       // line (like weight) rather than a stacked categorical bar chart.  Foods
       // that cannot be converted to the selected axis are reported, not zeroed.
-      var byDayFood = {}, usable = 0, omitted = 0;
-      rs.forEach(function (r) {
-        foodItemsOf(r).forEach(function (f) {
-          var value = '';
-          if (foodAxis === 'kcal') value = Number(f.kcal) > 0 ? Number(f.kcal) : '';
-          else if (Number(f.amount) > 0 && f.unit) value = convertFoodAmount(Number(f.amount), f.unit, foodAxis, foodItemConversionPreset(petForFood, f));
-          if (value === '' || !isFinite(Number(value))) { if (f.name) omitted++; return; }
-          usable++;
-          byDayFood[r.date] = (byDayFood[r.date] || 0) + Number(value);
+      var omitted = 0;
+      function foodTotals(records, count) {
+        var byDay = {};
+        records.forEach(function (r) {
+          foodItemsOf(r).forEach(function (f) {
+            var value = '';
+            if (foodAxis === 'kcal') value = Number(f.kcal) > 0 ? Number(f.kcal) : '';
+            else if (Number(f.amount) > 0 && f.unit) value = convertFoodAmount(Number(f.amount), f.unit, foodAxis, foodItemConversionPreset(petForFood, f));
+            if (value === '' || !isFinite(Number(value))) { if (count && f.name) omitted++; return; }
+            byDay[r.date] = (byDay[r.date] || 0) + Number(value);
+          });
         });
-      });
+        return byDay;
+      }
+      var byDayFood = foodTotals(rs, true);
       var foodDays = Object.keys(byDayFood).sort();
       labels = foodDays.map(formatDate);
       data = foodDays.map(function (d) { return { x: dayNum(d), y: Math.round(byDayFood[d] * 1000) / 1000 }; });
       name = 'Food intake';
       chartType = 'line';
-      $('chartSummary').innerHTML = foodAxis === 'kcal'
-        ? (usable ? '<span class="badge">Daily calorie intake from foods with kcal data</span>' : '') + (omitted ? '<span class="badge">' + omitted + ' food ' + (omitted === 1 ? 'line' : 'lines') + ' without kcal omitted</span>' : '')
-        : (usable ? '<span class="badge">Daily intake in ' + esc(foodUnitLabel(foodAxis, 2)) + '</span>' : '') + (omitted ? '<span class="badge">' + omitted + ' incompatible food ' + (omitted === 1 ? 'line' : 'lines') + ' omitted</span>' : '');
-    } else if (mode === 'types') {
-      var counts = {};
-      rs.forEach(function (r) { kindsOf(r).forEach(function (k) { counts[label(k)] = (counts[label(k)] || 0) + 1; }); });
-      labels = Object.keys(counts);
-      data = labels.map(function (k) { return counts[k]; });
-      chartType = 'bar';
-      name = 'Log types';
+      // Average daily intake over the last 7 and 30 days, counting only days
+      // with food logged (a day with nothing logged is unknown, not zero).
+      var allFoodDays = foodTotals(allRecords, false);
+      var unitText = foodAxis === 'kcal' ? 'kcal' : foodUnitLabel(foodAxis, 2);
+      var avgSince = function (daysBack) {
+        var from = shiftDay(today(), -(daysBack - 1)), sum = 0, n = 0;
+        Object.keys(allFoodDays).forEach(function (d) { if (d >= from) { sum += allFoodDays[d]; n++; } });
+        return n ? sum / n : null;
+      };
+      var avg7 = avgSince(7), avg30 = avgSince(30);
+      var fmtAvg = function (v) { return foodAxis === 'kcal' ? Math.round(v).toLocaleString() : trimNum(v, 2); };
+      var foodParts = [];
+      if (avg7 !== null) foodParts.push('<span class="badge" title="Days with food logged">7-day avg <b>' + esc(fmtAvg(avg7)) + ' ' + esc(unitText) + '/day</b></span>');
+      if (avg30 !== null) {
+        var vs = avg7 !== null && avg30 ? (avg7 - avg30) / avg30 * 100 : null;
+        foodParts.push('<span class="badge" title="Days with food logged">30-day avg <b>' + esc(fmtAvg(avg30)) + ' ' + esc(unitText) + '/day</b>' +
+          (vs !== null && Math.abs(vs) >= 5 ? ' <b>(last 7 days ' + (vs > 0 ? '+' : '−') + Math.abs(vs).toFixed(0) + '%)</b>' : '') + '</span>');
+      }
+      if (omitted) foodParts.push('<span class="chart-note">' + omitted + ' food ' + (omitted === 1 ? 'line' : 'lines') + (foodAxis === 'kcal' ? ' without kcal omitted' : ' in other units omitted') + '</span>');
+      $('chartSummary').innerHTML = foodParts.join('');
     } else if (mode === 'vomit-weekly' || mode === 'diarrhea-weekly') {
       var typeKey = mode === 'vomit-weekly' ? 'vomit' : 'diarrhea';
       var bucket = buildWeeklyBuckets([typeKey], 12);
@@ -2296,11 +2380,14 @@
           labelsOf(r).forEach(function (l) { var k = normName(l); tally[k] = (tally[k] || 0) + 1; spelled[k] = l; });
         });
         var top = Object.keys(tally).sort(function (a, b) { return tally[b] - tally[a]; }).slice(0, 4);
-        var palette = [C.series[1], C.series[0], C.series[2], C.series[3]];
+        // Green means "fine": only a Normal stool gets it; other labels get
+        // the warm colors, so problems stand out.
+        var palette = [C.series[1], C.series[2], C.series[3], C.series[4]];
         keys = top.concat(['other', 'none']);
-        top.forEach(function (k, i) { names[k] = spelled[k]; colors[k] = palette[i]; });
-        names.other = 'Other labels'; colors.other = C.series[4];
-        names.none = 'No label'; colors.none = C.series[5];
+        var pi = 0;
+        top.forEach(function (k) { names[k] = spelled[k]; colors[k] = k === 'normal' ? C.series[0] : palette[pi++]; });
+        names.other = 'Other labels'; colors.other = C.series[5];
+        names.none = 'No label'; colors.none = C.text;
         keyOf = function (r) {
           var ks = labelsOf(r).map(function (l) { var k = normName(l); return top.indexOf(k) >= 0 ? k : 'other'; });
           ks = ks.filter(function (k, i) { return ks.indexOf(k) === i; });
@@ -2409,20 +2496,8 @@
     } else if (mode === 'weight') {
       // One point per day (the last weigh-in that day), plus a 7-day average
       // that smooths out day-to-day noise from the scale.
-      var byDay = {};
-      allRecords.forEach(function (r) {
-        if (r.weight !== '' && r.weight != null && isFinite(Number(r.weight))) byDay[r.date] = Number(r.weight);
-      });
-      var allDays = Object.keys(byDay).sort();
-      var allValues = allDays.map(function (d) { return byDay[d]; });
-      var allAvg = allDays.map(function (d, i) {
-        var start = new Date(d + 'T00:00:00');
-        start.setDate(start.getDate() - 6);
-        var from = localDate(start);
-        var sum = 0, n = 0;
-        for (var j = i; j >= 0 && allDays[j] >= from; j--) { sum += allValues[j]; n++; }
-        return Math.round(sum / n * 100) / 100;
-      });
+      var dw = dailyWeights(allRecords);
+      var allDays = dw.days, allValues = dw.values, allAvg = dw.avg;
       var keep = allDays.map(function (d, i) { return inRange(d) ? i : -1; }).filter(function (i) { return i >= 0; });
       var wDays = keep.map(function (i) { return allDays[i]; });
       var wValues = keep.map(function (i) { return allValues[i]; });
@@ -2496,7 +2571,7 @@
       return;
     }
 
-    // Default config for the simple numeric / types modes
+    // Default config for the simple numeric modes (mood, activity, cost)
     if (!chartConfig) {
       chartConfig = {
         type: chartType,
@@ -2505,12 +2580,15 @@
           datasets: [{
             label: name,
             data: data,
-            tension: 0.35,
-            fill: chartType === 'line',
+            tension: mode === 'mood' ? 0 : 0.35,
+            // Mood is a 1-5 rating, not an amount, so it isn't shaded to zero
+            fill: chartType === 'line' && mode !== 'mood',
             backgroundColor: chartType === 'line' ? C.accentFill : C.accentBar,
             borderColor: C.accent,
             borderWidth: 2,
-            pointRadius: chartType === 'line' ? 4 : 0,
+            // Dots only while there are few enough to tell apart (hover still shows each day)
+            pointRadius: chartType === 'line' ? (data.length > 40 ? 0 : 3) : 0,
+            pointHoverRadius: 5,
             pointBackgroundColor: C.accent,
             pointBorderColor: C.pointBorder,
             pointBorderWidth: 2,
@@ -2581,9 +2659,11 @@
       },
       scales: {
         y: {
-          beginAtZero: mode !== 'weight' && !mDef,
+          beginAtZero: mode !== 'weight' && mode !== 'mood' && !mDef,
+          min: mode === 'mood' ? 1 : undefined,
+          max: mode === 'mood' ? 5 : undefined,
           stacked: isStackedWeekly,
-          ticks: Object.assign({ precision: isFoodChart ? undefined : 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode ? 1 : undefined }, weightTicks(), measureTicks()),
+          ticks: Object.assign({ precision: isFoodChart ? undefined : 0, color: C.text, font: { family: 'Geist', size: 11 }, stepSize: isWeeklyMode || mode === 'mood' ? 1 : undefined }, weightTicks(), measureTicks()),
           grid: { color: C.grid },
           title: isFoodChart ? { display: true, text: $('foodChartUnit').value === 'kcal' ? 'kcal' : foodUnitLabel($('foodChartUnit').value, 2), color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : isWeeklyMode ? { display: true, text: mode === 'play-weekly' ? 'Sessions' : (mode === 'symptom-weekly' || mode === 'stool-weekly') ? 'Logs' : 'Episodes', color: C.text, font: { family: 'Geist', size: 11, weight: '500' } } : undefined,
         },
@@ -2649,26 +2729,6 @@
   }
 
   // ===== PET CRUD =====
-  function addPetFromSidebar() {
-    var name = $('pName').value.trim();
-    if (!name) return toast('Please enter a name');
-    if (state.pets.length >= VAULT_LIMIT_PETS) return toast('You can have up to ' + VAULT_LIMIT_PETS + ' pets');
-    var pet = {
-      id: uid(),
-      name: name,
-      icon: $('pIcon').value,
-      species: $('pSpecies').value,
-      breed: $('pBreed').value.trim(),
-      birthday: $('pBirthday').value
-    };
-    state.pets.push(pet);
-    activePetId = pet.id;
-    ['pName', 'pBreed', 'pBirthday'].forEach(function (id) { $(id).value = ''; });
-    save();
-    render();
-    toast('Pet added');
-  }
-
   function openAddPetModal() {
     modalTitle.textContent = 'Add a pet';
     modalBody.innerHTML =
@@ -3472,6 +3532,12 @@
   function dayCount(from, to) {
     return Math.round((new Date(to + 'T00:00:00') - new Date(from + 'T00:00:00')) / 864e5) + 1;
   }
+  // The Monday on or before a YYYY-MM-DD date
+  function mondayOf(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+    return localDate(d);
+  }
   function shiftDay(dateStr, n) {
     var d = new Date(dateStr + 'T00:00:00');
     d.setDate(d.getDate() + n);
@@ -3601,8 +3667,38 @@
       });
     });
     foods.forEach(function (f) { f.dayCount = Object.keys(f.days).length; delete f.days; });
-    var foodEntries = recs.filter(function (r) { return foodItemsOf(r).length; }).map(function (r) {
-      return { date: r.date, text: foodLogText(r, pet), amount: foodAmountText(r, pet), kcal: foodTotalKcal(r) };
+    // Intake by week (Monday to Sunday): days with food logged, average
+    // calories on days that have calorie data, and each food's average amount
+    // on the days it was eaten.
+    var foodWeeks = [], weekByStart = {};
+    recs.forEach(function (r) {
+      var items = foodItemsOf(r);
+      if (!items.length) return;
+      var wk = mondayOf(r.date);
+      var w = weekByStart[wk];
+      if (!w) { w = weekByStart[wk] = { week: wk, days: {}, kcal: {}, foods: [], byKey: {} }; foodWeeks.push(w); }
+      w.days[r.date] = true;
+      var k = foodTotalKcal(r);
+      if (k !== '') w.kcal[r.date] = (w.kcal[r.date] || 0) + k;
+      items.forEach(function (f) {
+        if (!f.name) return;
+        var key = normName(f.name) + '|' + (f.unit || '');
+        var e = w.byKey[key];
+        if (!e) { e = w.byKey[key] = { name: f.name, unit: f.unit || '', amount: 0, days: {} }; w.foods.push(e); }
+        if (Number(f.amount) > 0) e.amount += Number(f.amount);
+        e.days[r.date] = true;
+      });
+    });
+    foodWeeks.sort(function (a, b) { return a.week.localeCompare(b.week); });
+    foodWeeks.forEach(function (w) {
+      w.dayCount = Object.keys(w.days).length;
+      var kd = Object.keys(w.kcal);
+      w.avgKcal = kd.length ? kd.reduce(function (t, d) { return t + w.kcal[d]; }, 0) / kd.length : null;
+      w.foods = w.foods.map(function (e) {
+        var n = Object.keys(e.days).length;
+        return { name: e.name, perDay: e.amount > 0 && e.unit ? e.amount / n : null, unit: e.unit };
+      });
+      delete w.days; delete w.kcal; delete w.byKey;
     });
 
     // Mood: average, and the lowest days
@@ -3705,7 +3801,7 @@
     return {
       measures: measureStats,
       foods: foods,
-      foodEntries: foodEntries,
+      foodWeeks: foodWeeks,
       mood: mood,
       visits: { count: visits.length, types: countLabels(visits.map(function (r) { return VET_TYPES[r.vetType] || ''; }).filter(Boolean)) },
       vomitLabels: countLabels([].concat.apply([], recs.filter(function (r) { return hasTag(r, 'vomit'); }).map(function (r) { return r.vomitKinds || []; }))),
@@ -3776,7 +3872,10 @@
       h += '<div class="vr-scroll"><table><tr><th>Medicine</th><th>Latest dose</th><th>Given</th><th>Dose changes</th></tr>' +
         sum.medicines.map(function (m) {
           var given;
-          if (m.span) {
+          if (m.daysGiven === 1) {
+            // A one-off dose: "1 of 12 days" would read as 11 missed doses
+            given = 'Once<div class="vr-muted">' + esc(shortDate(m.first)) + '</div>';
+          } else if (m.span) {
             var pw = Math.round(m.perWeek * 10) / 10;
             given = m.given + ' of ' + m.span + ' days' +
               '<div class="vr-muted">' + (pw < 1 ? 'Less than once a week' : pw === 1 ? 'About once a week' : 'About ' + trimNum(pw, 1) + ' times a week') + '</div>';
@@ -3798,18 +3897,25 @@
     h += '<section><h2>Vomiting and stool</h2>';
     if (sum.vomit.length || sum.stool.length) {
       var breakdown = function (list) { return list.length ? ' (' + list.map(function (l) { return esc(l.name) + ' ' + l.count; }).join(' · ') + ')' : ''; };
+      // Normal stools with no note are counted but not listed, so the table
+      // shows only what a vet would ask about.
+      var isRoutineStool = function (e) { return !e.note && e.labels.length && e.labels.every(function (l) { return normName(l) === 'normal'; }); };
+      var rows = sum.vomit.map(function (e) { return { date: e.date, what: 'Vomiting', labels: e.labels, note: e.note }; })
+        .concat(sum.stool.filter(function (e) { return !isRoutineStool(e); }).map(function (e) { return { date: e.date, what: 'Stool', labels: e.labels, note: e.note }; }))
+        .sort(function (a, b) { return a.date.localeCompare(b.date); });
+      var hidden = sum.stool.filter(isRoutineStool).length;
       h += '<p>Vomiting: <b>' + sum.vomit.length + '</b>' + breakdown(sum.vomitLabels) + '</p>' +
-        '<p>Stool logs: <b>' + sum.stool.length + '</b>' + breakdown(sum.stoolLabels) + '</p>' +
-        '<div class="vr-scroll"><table><tr><th>Date</th><th>Episode</th><th>Note</th></tr>' +
-        sum.vomit.map(function (e) { return { date: e.date, what: 'Vomiting', labels: e.labels, note: e.note }; })
-          .concat(sum.stool.map(function (e) { return { date: e.date, what: 'Stool', labels: e.labels, note: e.note }; }))
-          .sort(function (a, b) { return a.date.localeCompare(b.date); })
-          .map(function (e) {
+        '<p>Stool logs: <b>' + sum.stool.length + '</b>' + breakdown(sum.stoolLabels) + '</p>';
+      if (rows.length) {
+        h += '<div class="vr-scroll"><table><tr><th>Date</th><th>Episode</th><th>Note</th></tr>' +
+          rows.map(function (e) {
             return '<tr><td>' + esc(formatDate(e.date)) + '</td><td>' + e.what +
               (e.labels.length ? '<div class="vr-muted">' + esc(e.labels.join(', ')) + '</div>' : '') +
               '</td><td>' + esc(e.note || '') + '</td></tr>';
           }).join('') +
-        '</table></div>';
+          '</table></div>';
+      }
+      if (hidden) h += '<p class="vr-muted">' + hidden + ' normal ' + (hidden === 1 ? 'stool' : 'stools') + ' not listed.</p>';
     } else {
       h += '<p class="vr-muted">None logged in this period.</p>';
     }
@@ -3822,10 +3928,16 @@
         sum.foods.map(function (f) {
           return '<tr><td>' + esc(f.food) + '</td><td>' + esc(shortDate(f.from)) + (f.to !== f.from ? ' – ' + esc(shortDate(f.to)) : '') + '</td><td>' + f.dayCount + '</td></tr>';
         }).join('') + '</table></div>';
-      if (sum.foods.length > 1) h += '<p class="vr-muted">Foods are listed separately even when several were eaten on the same day.</p>';
-      if (sum.foodEntries.some(function (e) { return e.amount || e.kcal !== ''; })) {
-        h += '<h3 class="vr-sub">Recorded intake</h3><div class="vr-scroll"><table><tr><th>Date</th><th>Food / amount</th><th>Calories</th></tr>' +
-          sum.foodEntries.map(function (e) { return '<tr><td>' + esc(shortDate(e.date)) + '</td><td>' + esc(e.text.replace(/ · [^·]+ kcal$/, '')) + '</td><td>' + (e.kcal !== '' ? esc(trimNum(e.kcal, 1)) + ' kcal' : '—') + '</td></tr>'; }).join('') + '</table></div>';
+      if (sum.foodWeeks.some(function (w) { return w.avgKcal !== null || w.foods.some(function (f) { return f.perDay !== null; }); })) {
+        h += '<h3 class="vr-sub">Intake by week</h3><p class="vr-muted">Averages are per day with food logged.</p>' +
+          '<div class="vr-scroll"><table><tr><th>Week of</th><th>Days logged</th><th>Calories / day</th><th>Amount / day</th></tr>' +
+          sum.foodWeeks.map(function (w) {
+            var amounts = w.foods.map(function (f) {
+              return esc(f.name) + (f.perDay !== null ? ' <span class="vr-muted">' + esc(trimNum(f.perDay, 2) + ' ' + foodUnitLabel(f.unit, f.perDay)) + '</span>' : '');
+            }).join('<br>');
+            return '<tr><td>' + esc(shortDate(w.week)) + '</td><td>' + w.dayCount + '</td><td>' +
+              (w.avgKcal !== null ? esc(Math.round(w.avgKcal).toLocaleString()) + ' kcal' : '—') + '</td><td>' + amounts + '</td></tr>';
+          }).join('') + '</table></div>';
       }
     } else {
       h += '<p class="vr-muted">No food logged in this period.</p>';
@@ -4884,9 +4996,7 @@
     $('rDate').value = today();
 
     // ===== EVENT LISTENERS =====
-    $('savePet').addEventListener('click', addPetFromSidebar);
     $('authBtn').addEventListener('click', handleAuthClick);
-    $('addPetBtn').addEventListener('click', openAddPetModal);
     $('recordForm').addEventListener('submit', handleRecordSubmit);
     $('clearForm').addEventListener('click', clearRecordForm);
     $('appendBtn').addEventListener('click', appendToLastLog);
